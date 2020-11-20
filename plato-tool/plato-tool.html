@@ -1,0 +1,36 @@
+<?php
+
+class controller {
+    function get_articles() {
+        return DB::table('articles')->limit(50)->get();
+    }
+}
+?>
+<template component="my-table" props="data">
+  <table class="table">
+    <thead><tr >
+      <th v-for="(val, key) in data[0]">{{key}}</th>
+    </tr></thead>
+    <tr v-for="r in data">
+      <td v-for="(v,k) in r" :title="v" @click="$emit('click', {key: k, row: r})">{{(''+v).substr(0, 50)}}</td>
+    </tr>
+  </table>
+</template>
+
+<template url="/">
+    <div class="container-fluid">
+        <my-table :data="arts"></my-table>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    arts: []
+                }
+            },
+            async mounted() {
+                this.arts = await api.get_articles();
+            }
+        }
+    </script>   
+</template>

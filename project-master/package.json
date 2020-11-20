@@ -1,0 +1,15 @@
+{
+  "name": "project-master",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "harness" : {
+    "port" : "31313"
+  },
+  "scripts": {
+    "start": "harness ."
+  },
+  "dependencies": {
+    "marked": "^1.2.5"
+  }
+}

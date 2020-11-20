@@ -1,0 +1,116 @@
+<?php
+class filemaster {
+    function info($term) {
+        $ctrl = new controller;
+        foreach ($ctrl->do_search($term,'data/files.txt') as $file) {
+            yield [
+                'file' => $file,
+                'created' => date('Y-m-d', filectime($file)),
+                'modified' => date('Y-m-d',filemtime($file)),
+                'size' => filesize($file)
+            ];
+        }
+    }
+}
+?>
+<template component="my-table" props="data, totals">
+    <table class="table">
+		<thead>
+			<tr>
+				<th v-for="h in headers">{{h}}</th>
+			</tr>
+		</thead>
+		<tbody>
+			<tr v-for="row in data">
+				<td v-for="h in headers" v-if="h !== '_id'">
+                    <slot :name="h" v-bind="{value: row[h], row}">{{row[h]}}
+                    </slot>
+                </td>
+			</tr>
+        </tbody>
+        <tfoot v-if="totals">
+            <tr>
+                <td v-for="h in headers" v-if="h !== '_id'">
+                    <slot :name="h" v-bind="{value: totals[h], totals}">{{totals[h] || ''}}
+                    </slot>    
+                </td>
+            </tr>
+        </tfoot>
+	</table>
+    <script>
+        export default {
+            computed: {
+                headers() {
+                    return this.data && this.data[0] && Object.keys(this.data[0]) || []
+                }
+            }
+        };
+    </script>   
+</template>
+
+</template>
+
+<template url="/file-master" name="File Master"> 
+    <div>
+        <input v-model="search" class="form-control" @keyup.enter="doSearch($event)">
+        <fieldset v-if="num_results">
+            <legend>{{num_results}} results</legend>
+            <div style="overflow:auto; height:80vh;">
+            <div class="list-group-item" @dblclick="api.launcher.editor(s)" v-if="simple_results" v-for="s in simple_results">{{s}}</div>
+                <my-table :data="complex_results" v-if="complex_results" :totals="totalizer(complex_results)">
+                    <template #file="{value}"><span @dblclick="api.launcher.editor(s)">{{value}}</span></template>
+                    <template #size="{value}">{{(value/1024).toFixed(1)}}</template>
+                </my-table>
+            </div>
+        </fieldset>
+    </div>
+    <script>
+        export default {
+            computed: {
+                num_results() {
+                    return (this.simple_results || this.complex_results || []).length
+                }
+            },
+            data() {
+                return {
+                    info: null,
+                    message: null,
+                    search: null,
+                    simple_results: null,
+                    complex_results: null,
+                    scan_results: null
+                }
+            },
+        async mounted() {
+            this.link('search').to.localStorage('FileMasterSearchTerm');
+            if (this.search) {
+                this.doSearch();
+            }
+        },
+        methods: {
+            async doSearch($event) {
+                this.simple_results = null;
+                this.complex_results = null;
+                if ($event && $event.ctrlKey) {
+                    this.complex_results = await api.filemaster.info(this.search);
+                } else {
+                    this.simple_results = await api.do_search(this.search);
+                }
+            },
+            totalizer(data) {
+                var total = data.reduce((a, b) => {
+                    var ext = (b.file.match(/\.[a-z]+$/)||[]).pop();
+                    if (ext) {
+                        a.file[ext] = a.file[ext] || 0;
+                        a.file[ext]++;
+                    }
+                    a.size += b.size;
+                    return a;
+                }, {file: {}, size: 0})
+                
+                return total;
+            }
+        }
+    }
+    </script>
+</template>

@@ -1,0 +1,9 @@
+{
+    "index" : {
+        "files" : {
+            "fd_args" : "-E node_modules -E dist -E .cache -E build -E vendor -E Downloads -E cache --type f",
+            "post_filter" : "-n/n/ -Udacity/ -SuiteCRM -joshua/Games -Joshua/vintage -storage/framework -/home/joshua/snap/ -ideas/cached_urls"
+        },
+        "projects" : "package.json -screeps/ai/ -components/packages -/SuiteCRM -Downloads -flarepoint"
+    }
+}

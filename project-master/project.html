@@ -1,0 +1,94 @@
+<?php
+
+class project {
+    function info($path) {
+        $pkg =read_json("$path/package.json");
+        if ($pkg['dependencies'] ?? false) {
+            $pkg['scripts']['install'] ??= '...';
+        }
+        return [
+            'path' => $path,
+            'readme' => trim(`find $path -type f -maxdepth 1 | grep -i readme | head -n1 | xargs cat`),
+            'package' => $pkg,
+            'repo' => `git -C $path remote -v | head -n1 | cut -d'\t' -f2`
+        ];
+    }
+
+    
+}
+
+?>
+<template component="project-details" props="path">
+    <div>
+        <h3 style="position:sticky; top: 0; background:white;margin:0;padding:0px;">
+            <div style="padding: 20px 0px; border-bottom: 1px solid #ccc;">
+                <i v-if="$listeners['close']" class="fa fa-chevron-down" @click="$emit('close')"></i>
+                {{path}}
+            </div>
+        </h3>
+        
+        <button class="btn btn-secondary" @click="api.launcher.editor(path)">Open in editor</button>
+        <button class="btn btn-secondary" @click="api.launcher.terminal(path)">Open terminal</button>
+        
+        <br><br>
+        <div v-if="data.readme" @dblclick="handleMarkedDoubleClick" @click="handleMarkedClick" v-html="marked(data.readme)"></div>
+        <br>
+
+        <template v-if="data.package && data.package.scripts">
+            <h5>Scripts</h5>
+            <table >
+                <tr v-for="(command, name) in data.package.scripts">
+                    <td>
+                        <button type="button" class="btn btn-sm btn-primary"
+                        @click="api.launcher.runCommand(path, 'npm run ' + name)"
+                        >npm run {{name}}</button>
+                    </td>
+                    <td style="color:#aaa;">{{command}}</td>
+                </tr>
+
+            </table>
+        </template>
+        <!-- <pre>{{data}}</pre> -->
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    data: null
+                }
+            },
+            async mounted() {
+                this.data = await api.project.info(this.path);
+            },
+            methods: {
+                marked(content) {
+                    return marked(content);
+                },
+                handleMarkedClick(event) {
+                    if (event.target.matches('a[href]')) {
+                        var href = event.target.getAttribute('href') || event.target.innerText;
+
+                        if (href.match(/(^\/|:\/\/)/)) {
+                            event.target.setAttribute('target', '_blank');
+                            event.target.setAttribute('rel','noopener noreferrer');
+
+                            return;
+                        }
+
+                        window.open(href);
+
+                        event.preventDefault();
+                    }
+                },
+                handleMarkedDoubleClick(event) {
+                    if (event.target.matches('code')) {
+                        var code = event.target.innerHTML;
+                        if (confirm("Run code " + code + "?")) {
+                            api.launcher.runCommand(this.path, code);
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</template>

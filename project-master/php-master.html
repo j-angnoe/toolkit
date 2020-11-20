@@ -1,0 +1,173 @@
+<?php
+
+
+class phpmaster {
+    function scan_php_symbols($term = '') {
+        require_once 'lib/PhpSymbols.php';
+
+        $term = "\.php $term";
+        $ctrl = new controller;
+
+        $files = $ctrl->do_search($term);
+
+        $parser = new PhpSymbols;
+
+        // $parser->registerBodies = true;
+        foreach ($files as $f) {
+            foreach ($parser->parse($f) as $symbol) {
+                $symbol['file'] = $f;
+                yield $symbol;
+            }
+        }
+
+    }
+}
+
+?>
+
+
+<template url="/php-master" name="PHP Master"> 
+    <div>
+        <div>
+            <input v-model="search" class="form-control" @keyup.enter="doSearch()" placeholder="Search files">
+            <fieldset v-if="search_results">
+                <legend>{{search_results.length}} results</legend>
+                <div style="overflow:auto; max-height:40vh;">
+                <div class="list-group-item" @dblclick="api.launcher.editor(s)" v-for="s in search_results">{{s}}</div>
+                </div>
+                <div v-if="search_results.length > 0">
+                    <busy-button @click="scan_project(search)">Scan</busy-button>
+                    <div v-if="scan_results">{{scan_results.length}} results</div>
+                    <table class="table">
+                        <tr v-for="s in scan_results" @click="open_symbol(s)">
+                            <td>
+                                {{s.class || s.function || s.method}}
+                            </td>
+                            <td>{{ s.args || ''}}</td>
+                            <td>{{ (s.comment||'').substr(0,30)}}</td>
+                        </tr>
+                    </table>
+                </div>
+            </fieldset>
+        </div>
+    </div>
+    <script>
+
+        export default {
+            data() {
+                return {
+                    search: null,
+                    search_results: null,
+                    scan_results: null
+                }
+            },
+            async mounted() {
+                this.link('search').to.localStorage('PhpMasterSearchTerm');
+            },
+            methods: {
+                async doSearch() {
+                    this.search_results = await api.do_search('\.php ' + this.search);
+                },
+                async scan_project(term) {
+                    term = term || this.search;
+                    this.scan_results = await api.phpmaster.scan_php_symbols(term);
+                },
+                async open_symbol(symbol) {
+                    dialog.dialog(`<div width=600 height=600 centered=true :title="symbol.class || symbol.function || symbol.method">
+                        <div>{{symbol.class || symbol.function || symbol.method}}</div>
+                        <pre v-if="symbol.args">{{symbol.args}}</pre>
+                        <pre v-if="symbol.comment">{{symbol.comment}}</pre>
+                        <pre style="white-space:pre-wrap;">{{symbol.body}}</pre>
+                    </div>`, { 
+                        data: {symbol} 
+                    });
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="file-result-node" props="value">
+    <div>
+        <div v-for="(content, name) in value">
+            <div class="handle" v-if="!isString(content)" ><i class="fa fa-folder"></i> {{name}}</div>
+            <div class="handle" v-if="isString(content)" @click="$emit('select', content)"><i class="fa fa-file-o"></i> {{name}}</div>
+            <div style="padding-left:25px;">
+                    <file-result-node v-if="!isString(content)" :value="content" v-on="$listeners"></file-result-node>
+            </div>
+        </div>
+    </div>
+    <script>
+        export default {
+            methods: {
+                isString(n) {
+                    return typeof n == 'string';
+                }
+            }
+        }
+    </script>
+</template>
+<template component="show-file-results" props="value">
+    <div>
+        <file-result-node :value="tree" v-on="$listeners"></file-result-node>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    tree: []
+                }
+            },
+            watch: {
+                value() {
+                    this.parse();
+                }
+            },
+            mounted() {
+                this.parse();
+            },
+            methods: {
+                parse() {
+                    var tr = {};
+
+                    this.value.map(f => {
+                        var c = tr;
+                        f.split(/\//).filter(Boolean).map(piece => {
+                            c[piece] = c[piece] || {};
+                            c = c[piece];
+                        });
+                    });
+
+                    var walk = function(n, prefix, built) {
+                        built = built || ['/'];
+                        prefix = prefix ? prefix + '/' : '';
+                        var keys = Object.keys(n);
+
+                        if (keys.length == 1) {
+                            var sk = Object.keys(n[keys[0]]);
+                            if (sk.length == 0) {
+                                var obj = {};
+                                obj[prefix + keys[0]] = [...built, keys[0]].join('/').replace(/\/\//, '/');
+                                return obj;
+                            }
+                            return walk(n[keys[0]], prefix + keys[0], [...built, keys[0]]);
+                        } else {
+                            var obj = {};
+                            keys.map(k => {
+                                var sk = Object.keys(n[k]);
+                                if (sk.length == 0) {
+                                    obj[prefix + k] = [...built, k].join('/').replace(/\/\//, '/');
+                                } else {
+                                    obj[prefix + k] = walk(n[k], null, [...built, k]);
+                                }
+                            })
+                            return obj;
+                        }
+                    }
+
+                    this.tree = walk(tr);
+                }
+            }
+        }
+    </script>
+</template>

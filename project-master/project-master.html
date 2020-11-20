@@ -1,0 +1,252 @@
+<?php
+
+class controller {
+    function settings() {
+        global $settings;
+        return $settings;
+    }
+
+    function index_files() {
+        global $settings;
+        $args = $settings['index']['files'] ?? [];
+        $fd_args = $args['fd_args'] ?? '';
+        $postfilter = $args['post_filter'] ?? '';
+
+        $command = "fd $fd_args . " . $_ENV["HOME"];
+
+        if ($postfilter) {
+            $greps = $this->get_grep_terms($postfilter);
+            $command = $command . " | " . join(" | ", $greps);
+        }
+        if (php_sapi_name() == 'cli') {
+            system($command . " | sort | tee data/files.txt");
+            return $this->get_info();
+        } else {
+            exec("$command | sort > data/files.txt");
+            return $this->get_info();
+        }
+    }
+
+    function index_projects() {
+        global $settings;
+        $filter = $settings['index']['projects'] ?? '';
+        if (!$filter) {
+            throw new Exception('Please register in settings.json the key index.projects');
+        }
+        $files = $this->do_search($filter, 'data/files.txt');
+        $projects = array_map('dirname', $files);
+        file_put_contents('data/projects.txt', join("\n", $projects));
+        $data = [];
+
+        
+        foreach ($projects as $p) {
+            $is_git = is_dir("$p/.git");
+
+            $proj = [
+                'path' => $p,
+                'modified' => date('Y-m-d H:i:s', filemtime($p)),
+                'created' => date('Y-m-d H:i:s', filectime($p)),
+                'is_git' => $is_git
+            ];
+            
+            if ($is_git) {
+                $origin = trim(`git -C $p remote -v | head -n1 | cut -d'\t' -f2 | sed 's~ (fetch)~~'`);
+                $proj['origin'] = $origin;
+                $proj['first_commit'] = trim(`git -C $p log --all --reverse --date=short --pretty=format:'%ad' --author=Joshua | head -n1`);
+                $proj['num_commits'] = trim(`git -C $p log --oneline --all --author=Joshua | wc -l`);
+                $proj['last_commit'] = trim(`git -C $p log --all --date=short --pretty=format:'%ad' --author=Joshua | head -n1`);
+            }
+            $data[] = $proj;
+        }
+        write_json('data/projects.json', $data);
+        return $projects;
+    }
+
+    function index_status() {
+        return ['info' => command("wc -l data/*.txt")];
+    }
+
+    static function isCli() {
+        return php_sapi_name() == 'cli';
+    }
+
+    function index_gits() {
+        $handle = fopen('data/gits.txt','w');
+        foreach ($this->get_projects() as $dir) {
+            if (is_dir($dir."/.git")) {
+                $origin = command("git -C $dir remote -v | head -n1 | cut -d'\t' -f2");
+                if ($origin) {
+                    $origin = str_replace(' (fetch)', '', $origin[0]);
+                    $line = "$dir\t$origin";
+                } else {
+                }
+                fwrite($handle, $line . "\n");
+                if (self::isCli()) {
+                    echo $line."\n";
+                }
+            }
+        }
+        fclose($handle);
+    }
+
+   
+
+    function get_grep_terms($term) {
+        $term = trim($term);
+        $greps = [];
+        foreach (preg_split('~\s+~', $term) as $t) {
+            if (substr($t, 0, 1) === '-') {
+                $greps[] = 'grep -vi '.escapeshellarg(substr($t,1));
+            } else {
+                $greps[] = 'grep -i ' . escapeshellarg($t);
+            }
+        }
+        return $greps;
+    }
+
+    function do_search($term, $file = 'data/files.txt') {
+        // Shortcut, perform a live search when you prefix it with a dollar.
+        if (substr($term, 0, 1) === '$') {
+            return command(substr($term, 1));
+        }
+
+        $greps = [];
+
+        @list($term, $pipe) = explode('|', $term.'|');
+        @list($term, $output) = explode('>', $term.'>');
+
+        $pipe = $pipe ? " | $pipe " : "";
+        $output = $output ? " > $output " : "";
+
+        $greps = $this->get_grep_terms($term);
+
+        return command("cat $file | " . join(" | ", $greps) . " $pipe $output");
+    }
+
+    function open_file($file) {
+        return [
+            'file' => $file,
+            'directory' => dirname($file),
+            'content' => file_get_contents($file),
+            'modified' => date('Y-m-d H:i:s', filemtime($file))
+        ];
+    }
+
+    function open_git($dir) {
+        $dir = str_replace('/.git', '', $dir);
+        return [
+            'directory' => $dir,
+            'status' => join("\n", command("git -C $dir status")),
+            'history' => join("\n", command("git -C $dir log --pretty=format:'%h %ad | %s%d [%an]' --graph --date=short"))
+        ];
+    }
+    
+    function get_projects() {
+        return array_map('trim', file('data/projects.txt'));
+    }
+    function get_projects_full() {
+        return array_map(function($i) { 
+            $i['timestamp'] = strtotime($i['last_commit'] ?? $i['modified'] ?? 0);
+            return $i;
+        }, read_json('data/projects.json'));
+    }
+}
+?>
+
+<template url="/" name="Project Master">
+    <div class="container-fluid">
+        <h3>Project master</h3>
+        <p>Run harness run index_projects to create a project index. Modify settings in settings.json. Doubleclick on project to open in editor, click on origin to open github.</p>
+
+        <div class="filters row">
+            <div class="col-2">
+                <input v-model="search" class="form-control">
+            </div>
+            <div class="col-10">
+                <button 
+                    v-for="(v,k) in filters"
+                    type="button" 
+                    class="btn btn-primary"
+                    :class="{active: v}" 
+                    @click="filters[k] = !filters[k]"
+                >{{k}}</button>
+            </div>
+        </div>
+        <br>
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Project ({{filteredProjects && filteredProjects.length}})</th>
+                    <th>Created</th>
+                    <th>Modified</th>
+                    <th colspan=2>...</th>
+                </tr>
+            </thead>
+            <template v-for="p in filteredProjects">
+                <tr>
+                    <td>
+                    <i class="fa" 
+                        :class="'fa-chevron-' + (openedProjects[p.path] ? 'down' : 'right')" 
+                        @click="$set(openedProjects, p.path, !(openedProjects[p.path] || false))"
+                        ></i> 
+                        <span @dblclick.prevent="api.launcher.editor(p.path)">{{p.path}}</span>
+                    </td>
+                    <template v-if="!p.is_git">
+                        <td>
+                            {{p.created.substr(0,10)}}</td>
+                        <td>{{p.modified.substr(0,10)}}</td>
+                        <td></td>
+                    </template>
+                    <template v-if="p.is_git">
+                        <td>{{p.first_commit}}</td>
+                        <td>{{p.last_commit}}</td>
+                        <td>{{p.origin}}</td>
+                        <td>{{p.num_commits}}</td>
+                    </template>
+                </tr>    
+                <tr v-if="openedProjects[p.path]">
+                    <td colspan=10 style="padding-left:30px;">
+                        <project-details @close="openedProjects[p.path] = false" :path="p.path"></project-details>
+                    </td>
+                </tr>
+            </template>
+        </table>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    search: '',
+                    openedProjects: {},
+                    filters: {
+                        is_git: true
+                    },
+                    projects: null
+                }
+            },
+            computed: {
+                filteredProjects() {
+                    return this.projects && this.projects.filter(p => {
+                        var match = true;
+                        if (this.filters.is_git) {
+                            match = match && p.is_git;
+                        }
+                        if (this.search) {
+                            match = match && ( p.path.match(this.search) || (p.origin && p.origin.match(this.search)) );
+                        }
+                        return match;
+                    }).sort((a, b) => {
+                        return b.timestamp - a.timestamp;
+                    });
+                }
+            },
+            async mounted() {
+                this.projects = await api.get_projects_full();
+                this.link('filters').to.localStorage('ProjectMasterFilterProjects');
+                this.link('search').to.localStorage('ProjectMasterSearchProjects');
+                this.link('openedProjects').to.localStorage('ProjectMasterOpenedProjects');
+            }
+        }
+    </script>
+</template>
+

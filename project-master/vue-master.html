@@ -1,0 +1,282 @@
+<?php
+/**
+ * Vue Master
+ * 
+ * An interface to help scan all your component files.
+ * With support for:
+ *      Vue.directive declarations 
+ *      Vue.component declarations
+ *      Vue-block template component blocks.
+ * 
+ * Requires projects.txt, a text file containing all your project directories.
+ */
+class vue {
+    function get_index_status() {
+        return [
+            'vue-index' => file_exists('data/vue.txt') ? 'Last updated ' . date('Y-m-d H:i:s', filemtime('data/vue.txt')) : false,
+            'project-index' => file_exists('data/projects.txt') ? 'Last updated ' . date('Y-m-d H:i:s', filemtime('data/projects.txt')) : '',
+        ];
+    }
+    function create_index() {
+        file_put_contents('data/vue.txt', '');
+        $controller = new controller;
+
+        $projects = $controller->get_projects();
+        $scannedDirs = [];
+        sort($projects);
+
+        $shouldScan = [];
+        foreach ($projects as $dir) {
+
+            foreach ($shouldScan as $s) {
+                if (strpos($dir, $s) === 0) {
+                    echo "Skipping $dir\n";
+                    continue 2;
+                }
+            }
+            $shouldScan[] = $dir;
+        }
+
+        $scannedDirs = [];
+        foreach ($shouldScan as $dir) {
+            
+            foreach ($scannedDirs as $s) {
+                if (strpos($dir, $s) === 0) {
+                    dd("This should not happen skipping $dir");
+                    continue 2;
+                }
+            }
+
+            $scannedDirs[] = $dir;
+
+            echo ("scanning $dir\n");
+            system("fd -E node_modules -E vendor -E .cache -E build -E dist -E storage/framework --type f . $dir  | xargs -d '\n' grep -n '\<template component='  >> data/vue.txt");
+            system("fd -E node_modules -E vendor -E .cache -E build -E dist -E storage/framework --type f . $dir | xargs -d '\n' grep -n -E '^\s*Vue.(component|directive)\(' >> data/vue.txt");
+            system("fd -E node_modules -E vendor -E .cache -E build -E dist . $dir -e 'vue' >> data/vue.txt");
+        }
+    }
+
+    function calculateProjectPath($path) {
+        // paths from .git, package.json, composer.json
+    
+        $tryRootFiles = ['package.json','composer.json', '.git'];
+    
+        foreach ($tryRootFiles as $file) {
+            $currentPath = realpath($path) ?: getcwd() . "/" . $path;
+    
+            while($currentPath > '/home' && $currentPath > '/') {
+                // echo "try " . $currentPath . "/$file\n";
+                if (is_dir($currentPath . "/" . $file) || is_file($currentPath . "/" . $file)) {
+                    // echo 'return ' . $currentPath."\n";
+    
+                    return $currentPath;
+                }
+                $currentPath = dirname($currentPath);
+            }    
+        }
+    }
+    
+    function get_associated_project($filename) {
+        $dir = dirname($filename);
+        $this->_associated_projects_lookup ??= [];
+        if ($this->_associated_projects_lookup[$dir] ?? false) {
+            return $this->_associated_projects_lookup[$dir];
+        }
+        $this->_associated_projects_lookup[$dir] = $this->calculateProjectPath($dir);
+        return $this->_associated_projects_lookup[$dir];
+    }
+    function get_components($filter = null) {
+        if ($filter && trim(join(' ',$filter)) > '') {
+            $controller = new controller;
+            $greps = $controller->get_grep_terms(join(' ',$filter));     
+            $result = command("cat data/vue.txt | " . join(" | ", $greps));
+        } else { 
+            $result = file('data/vue.txt');
+        }
+        foreach ($result as $line) {
+            $line = trim($line);
+            if (strpos($line, ':')) {
+                // a grep match
+                list($file, $line_number, $line) = explode(':', $line);
+
+                if (preg_match('~template component=[\'"](.+?)[\'"]~', $line, $match)) {
+                    $name = $match[1];
+                } else if (preg_match('~Vue\.(directive|component)\([\'"](.+?)[\'"]~', $line, $match)) {
+                    $name = $match[2];
+                }
+
+                $project_dir = $this->get_associated_project($file);
+                $project_file = substr($file, strlen($project_dir));
+
+                if ($name) { 
+                    yield [
+                        'file' => $file,
+                        'name' => $project_file,
+                        'line' => $line_number,
+                        'project' => $project_dir,
+                        'project_file' => $project_file,
+                        'component' => trim($name)
+                    ];
+                } else {
+                    yield [
+                        'file' => $file,
+                        'project' => $project_dir,
+                        'project_file' => $project_file,
+                        'line' => $line_number,
+                        'unknown' => $line
+                    ];
+                }
+            } else {
+                $file = $line;
+                $project_dir = $this->get_associated_project($file);
+                $project_file = substr($file, strlen($project_dir));
+
+                yield [
+                    'file' => $file,
+                    'project' => $project_dir,
+                    'project_file' => $project_file,
+                    'component' => pathinfo($line, PATHINFO_FILENAME)
+                ];
+            }
+        }
+    }
+
+    function get_component_file($file, $componentName = null, $line = null) {
+        $lines = array_map('rtrim', file($file));
+
+        if ($line > 0) {
+            $lines = array_slice($lines, max(0, intval($line) - 3));
+        }
+        return [
+            'content' => join("\n", $lines)
+        ];
+    }   
+}
+?>
+
+<template component="busy-button">
+    <!-- 
+        Busy button - a button that tracks will block until the onclick promise resolves.
+
+        @usage 
+        <busy-button @click="someHeavyProcess()">Button caption</busy-button>
+        @endusage
+    -->
+    <button type="button" :disabled="busy" @click.stop="performClick">
+        <slot></slot> {{busy || ''}}
+    </button>
+    <script>
+        export default {
+            data() {
+                return {
+                    busy: false
+                }
+            },
+            methods: {
+                async performClick() {
+                    this.busy = '(busy...)';
+                    try { 
+                        await this.$listeners['click']();
+                    } catch (ex) {
+                        this.busy = '(failed!)';
+                        setTimeout(() => this.busy = false, 1000);
+                        return;
+                    }
+                    this.busy = false;
+                    this.$emit('done');
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="vue-index-status">
+    <div>
+        <b>Status: </b><pre>{{status}}</pre>
+        <busy-button @click="api.vue.create_components_index()" @done="load()">
+            {{ status['vue-index'] ? 'Update vue index' : 'Create vue index'}}
+        </busy-button>
+    </div>
+    <script>
+        export default {
+            data() {
+                return { status: null }
+            },
+            async mounted() {
+                this.status = await api.vue.get_index_status()
+            }
+        }
+    </script>
+</template>
+<template url="/vue-master" name="Vue Master">
+    <div class="container-fluid">
+        <br>
+        <h3>Vue master</h3>
+        <p>Tip: Double-click on a project or filename to open it in an external editor</p>
+        <vue-index-status></vue-index-status>
+        <br>
+        
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>File ({{components.length}} results, {{uniqueNames.length}}) unique</th>
+                    <th>Component </th>
+                </tr>
+                <tr>
+                    <th><input class="form-control form-control-sm" v-model="filter.file" @keyup.enter="load"></th>
+                    <th><input class="form-control form-control-sm" v-model="filter.name" @keyup.enter="load"></th>
+                </tr>
+            </thead>
+            <tbody v-for="(comps, project) in byProjects">
+                <tr><td colspan=3 @dblclick="api.apps_editor(project)">{{project}}</td></tr>
+                <tr v-for="c in comps" @dblclick="api.apps_editor(c.file)" @click="clickFileComponent(c)">
+                    <td style="padding-left:50px;">{{c.project_file}}</td>
+                    <td>{{c.component}}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    components: [],
+                    filter: { file: '', name: ''}
+                }
+            },
+            computed: {
+                byProjects() {
+                    var res = {};
+                    this.components.map(c => {
+                        res[c.project] = res[c.project] || [];
+                        res[c.project].push(c);
+                    })
+                    return res;
+                },
+                uniqueNames() {
+                    return [...new Set(this.components.map(c => c.name))];
+                }
+            },
+            mounted() {
+                this.link('filter').to.localStorage('VueMasterFilter');
+                this.load();
+            },
+            methods: {
+                async load() {
+                    this.components = await api.vue.get_components(this.filter);
+                },
+                async clickFileComponent(c) {
+                    var result = await api.vue.get_component_file(c.file, c.name, c.line || null);
+
+                    dialog.dialog(`<div width=800 height=800 title="View component" centered=true>
+                        <pre>{{content}}</pre>
+                    </div>`, {
+                        data: {
+                            content: result.content
+                        }
+                    });
+                }
+            }
+        }
+    </script>
+</template>
