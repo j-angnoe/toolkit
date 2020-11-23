@@ -20,10 +20,10 @@ class controller {
         }
         if (php_sapi_name() == 'cli') {
             system($command . " | sort | tee data/files.txt");
-            return $this->get_info();
+            return $this->index_status();
         } else {
             exec("$command | sort > data/files.txt");
-            return $this->get_info();
+            return $this->index_status();
         }
     }
 

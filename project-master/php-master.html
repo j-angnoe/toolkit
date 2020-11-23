@@ -12,7 +12,7 @@ class phpmaster {
 
         $parser = new PhpSymbols;
 
-        // $parser->registerBodies = true;
+        $parser->registerBodies = true;
         foreach ($files as $f) {
             foreach ($parser->parse($f) as $symbol) {
                 $symbol['file'] = $f;

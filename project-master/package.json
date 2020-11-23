@@ -7,7 +7,11 @@
     "port" : "31313"
   },
   "scripts": {
-    "start": "harness ."
+    "start": "harness .",
+    "reindex:files" : "harness run index_files",
+    "reindex:projects" : "harness run index_projects",
+    "reindex:vue" : "harness run vue create_index",
+    "reindex:all" : "npm run reindex:files; npm run reindex:projects; npm run reindex:vue"
   },
   "dependencies": {
     "marked": "^1.2.5"
