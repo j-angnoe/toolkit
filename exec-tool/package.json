@@ -1,0 +1,13 @@
+{
+  "name": "btools-exec",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "bin": {
+    "exec-tool": "./bin/exec-tool"
+  },
+  "dependencies": {
+    "codemirror": "^5.58.3",
+    "vue-codemirror": "^4.0.6"
+  }
+}

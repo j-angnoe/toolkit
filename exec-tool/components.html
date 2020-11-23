@@ -1,0 +1,162 @@
+<template component="my-table" props="data, totals, headerFilters">
+    <style scoped>
+        .filter-th {
+            position: relative;
+        }
+        .filter-container { 
+            position: absolute;
+            top:0;right:0;bottom:0;left:0;
+            height: 30px;
+            min-width: 30px;
+        }
+        .filter-container input {
+            width: 100%;
+        }
+        thead th {
+            background: white;
+        }
+    </style>
+    <table class="table">
+		<thead  style="position:sticky; top: 0;">
+			<tr>
+				<th v-for="h in headers" @click="setOrder(h)">{{h}}</th>
+            </tr>
+            <tr v-if="headerFilters">
+                <th v-for="h in headers" class="filter-th">
+                    <div class="filter-container">
+                        <input @input="$emit('filter', { column: h, value: $event.target.value })">
+                    </div>
+                </th>
+            </tr>
+		</thead>
+		<tbody>
+			<tr v-for="row in ordered_data">
+				<td v-for="h in headers" v-if="h !== '_id'" :style="row._style || ''">
+                    <slot :name="h" v-bind="{value: row[h], row}">{{row[h]}}
+                    </slot>
+                </td>
+			</tr>
+        </tbody>
+        <tfoot v-if="totals">
+            <tr>
+                <td v-for="h in headers" v-if="h !== '_id'">
+                    <slot :name="h" v-bind="{value: totals[h], totals}">{{totals[h] || ''}}
+                    </slot>    
+                </td>
+            </tr>
+        </tfoot>
+	</table>
+    <script>
+        export default {
+            data() {
+                return {
+                    grid_order: null,
+                    grid_reverse: null
+                }
+            },
+            computed: {
+                headers() {
+                    return (this.data && this.data[0] && Object.keys(this.data[0]) || []).filter(k => k.substr(0,1) !== '_')
+                },
+                ordered_data() {
+                    var data = (this.data && this.data || []);
+                    return data.sort((a, b) => {
+                        if (this.grid_reverse) {
+                            var [b,a] = [a,b];
+                        }
+                        
+                        if (a[this.grid_order] > b[this.grid_order]) {
+                            return 1;
+                        } else if (a[this.grid_order] == b[this.grid_order]) {
+                            return 0;
+                        }
+                        return -1;
+                    })
+                    return [];
+                }
+            },
+            methods: {
+                setOrder(key) {
+                    if (this.grid_order== key) {
+                        this.grid_reverse = !this.grid_reverse;
+                    } else {
+                        this.grid_reverse = false;
+                        this.grid_order = key;
+                    }
+
+                    this.$emit('order', [key, this.grid_reverse]);
+                }
+            }
+        };
+    </script>   
+</template>
+
+<template component="filtered" props="data">
+    <div>
+        <div style="position:sticky;top:0;">
+            <input 
+                class="form-control" 
+                v-model="search" 
+                type="search" 
+                placeholder="Search"
+                @keyup.enter="selectFirst()"
+            >
+        </div>
+        <div>
+            <div v-if="search && filtered.length == 0">
+                <em>No results</em>
+            </div>
+            <template v-for="s in filtered">
+                <slot name="item" v-bind="{item:s}"></slot>
+            </template>
+        </div>
+    </div>
+    <script>
+    export default {
+        data() {
+            return {
+                search: ''
+            }
+        },
+        computed: {
+            filtered() {
+                var regexp = new RegExp(this.search, 'i');
+                return this.data.filter(i => {
+                    var str = typeof i == 'string' ? i : Object.values(i).join(',');
+                    return regexp.test(str);
+                })
+            }
+        },
+        mounted() {
+            
+        },
+        methods: {
+            selectFirst() {
+                if (this.filtered[0]) {
+                    this.$emit('select', this.filtered[0]);
+                }
+            }
+        }
+    }
+    </script>
+</template>
+
+<template component="code-editor" props="value, options">
+    <codemirror 
+        :value="value"
+        @input="$emit('input', $event)"
+        :options="{
+            mode: 'text/x-php',
+            tabSize: 3,
+            indentWithTabs: true,
+            lineNumbers: true,
+            line: true,
+            ...(options || {})
+        }"
+        x-ref="codeMirror"
+        @focus="$emit('focus',$event)"
+    ></codemirror>
+    <script>
+        export default {}
+    </script>
+</template>

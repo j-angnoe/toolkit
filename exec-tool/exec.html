@@ -1,0 +1,464 @@
+<?php
+require_once __DIR__ . '/exec.php';
+?>
+<template url="/exec">
+    <div v-ctrl-s="exec" class="container-fluid">
+        <h1>Execute a script</h1>
+        <p>Tip: Do ctrl-s or ctrl-enter to run the code. Add @output html to control output, or @id [id] to save.</p>
+        <code-editor 
+            ref="code"
+            v-model="code" 
+            :options="{
+                extraKeys: {
+                    'Ctrl-Enter': submitCode,
+                    'Cmd-Enter': submitCode,
+                    'Ctrl-N' : newScript,
+                    'Cmd-N': newScript,
+                    'Ctrl-O': openScript,
+                    'Cmd-O' : openScript
+                }
+            }"
+        >
+        </code-editor>
+        <hr>
+        <div v-if="loading">Executing...</div>
+        <div v-if="error">{{error}}</div>
+
+        <div v-if="result" style="max-height:90vh; overflow: auto;">
+
+            <result-renderer :exec="subExec" @interact="handleInteractions" :value="result"></result-renderer>
+        </div>
+    </div>
+    <style scoped>
+        textarea {
+            font-family: mono, monospace;
+            font-size: 12px;
+        }
+    </style>
+    <script>
+        export default {
+            data() {
+                return {
+                    code: '',
+                    loading: false,
+                    error: false,
+                    result: false
+                }
+            },
+            mounted() {
+                this.link('code').to.localStorage('lastExecCode');
+            },
+            methods: {
+                submitCode(event) {
+                    this.exec();
+                },
+                newScript(event) { 
+                    this.code = '';
+                    this.result = null;
+                    this.loading = false;
+                    this.error = false;
+                },
+                subExec(params) {
+                    return api.exec.execute(this.code, params);
+                },
+                async exec(params) {
+                    this.loading = false;
+                    this.error = false;
+                    this.result = null;
+                    try {
+                        this.result = await this.subExec(params);
+
+                        if (this.result.code) {
+                            this.code = this.result.code;
+                        }
+                    } catch (err) {
+                        this.error = err
+                    }
+
+                    this.loading = false;
+                },
+                async handleInteractions(event) {
+                    if (event && event.link) {
+                        this.exec({
+                            'GET': event.link.href
+                        });
+                    } else if (event && event.submit) {
+                        var data = new URLSearchParams(new FormData(event.submit.target)).toString();
+
+                        this.exec({
+                            'POST': data
+                        });
+                    }
+                },
+                async openScript() {
+
+                    var file = await dialog.dialog(`<div width=300 height=400 centered=true>
+            <ui-suggest call="exec.searchScript" @select="$resolve($event)"></ui-suggest>
+            </div>`);
+
+                    this.code = await api.exec.openScript(file);
+                    this.focus();
+                },
+                focus() {
+                    this.$refs.code.focus();
+                }
+            },
+
+            directives: {
+                tab: {
+                    bind(el) {
+                        el.addEventListener('keydown', function(e) {
+                            var newEvent = new Event('input', {
+                                bubbles: true,
+                                cancelable: true,
+                            });
+
+                            if (e.key == 'Tab') {
+                                e.preventDefault();
+                                var start = this.selectionStart;
+                                var end = this.selectionEnd;
+
+                                if (e.shiftKey) {
+                                    if (this.value.substr(start - 1, 1) === "\t") {
+                                        this.value = this.value.substr(0, start - 1) + this.value.substr(end);
+                                    }
+                                    this.dispatchEvent(newEvent);
+                                    this.selectionStart = start - 1;
+                                    this.selectionEnd = start - 1;
+                                    return;
+                                }
+                                // set textarea value to: text before caret + tab + text after caret
+                                this.value = this.value.substring(0, start) +
+                                    "\t" + this.value.substring(end);
+
+                                // put caret at right position again
+                                this.selectionStart =
+                                    this.selectionEnd = start + 1;
+
+                                this.dispatchEvent(newEvent);
+
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="result-renderer" props="value, exec">
+    <div>
+        <div v-if="value && value.meta && value.meta.output">
+
+            <!-- dit is voor duo modus (output table en html) -->
+            <div v-if="value && value.meta && value.meta.html">
+                <exec-output-html v-on="$listeners" :value="value"></exec-output-html>
+            </div>
+            <div v-if="componentExists('exec-output-' + value.meta.output)" :is="'exec-output-' + value.meta.output" v-on="$listeners" :value="value" :exec="exec">
+            </div>
+            <div v-else>
+                Unknown output type `{{value.meta.output}}`
+                <pre>{{value.content}} {{value.data}}</pre>
+            </div>
+        </div>
+        <div v-else>
+            <div style="position:absolute; right: 0;background: white;">
+                <a @click="mode = 'default'">default</a>
+                <a @click="mode = 'table'">table</a>
+                <a @click="mode = 'debug'">debug</a>
+            </div>
+            <div v-if="mode == 'table' && isArray">
+                <exec-output-table :value="value"></exec-output-table>
+            </div>
+            <div v-if="mode == 'debug'">
+                <pre>{{value}}</pre>
+            </div>
+
+            <!-- mode default -->
+            <div v-else>
+                <pre v-if="value.content > ''">{{value.content}}</pre>
+                <pre v-if="value.data > ''">{{value.data}}</pre>
+            </div>
+
+        </div>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    mode: 'default'
+                }
+            },
+            computed: {
+                isArray() {
+                    return Array.isArray(this.value.data);
+                }
+            },
+            mounted() {
+                this.link('mode').to.sessionStorage('lastExecMode')
+            },
+            methods: {
+                componentExists(component) {
+                    return Vue.options.components[component] || false;
+                },
+            }
+        }
+    </script>
+</template>
+
+<template component="exec-output-html" props="value">
+    <disarmed-html @interact="$listeners['interact']" :content="value.content"></disarmed-html>
+</template>
+
+<template component="disarmed-html">
+    <!--
+        Disarmed HTML Output means:
+
+        Does not mean XSS safe, no, it means that links and forms
+        will not be allowed to the entire page to navigate to somewhere.
+        Clicks on links and form submissions are converted to `interact` events.
+
+        @usage:
+        <plush-disarmed-html-output :content="myContent" @interact="handleInteraction($event)">
+
+        Inner workings:
+
+        We use v-html directive to output content as html.
+
+        Whenever this input changes, we re-run a function that scans the outputted html and
+        tries to disarm anchors and forms.
+
+    -->
+    <div ref="injectedHtmlContainer" v-html="content"></div>
+    <script>
+        export default {
+            props: ['content'],
+
+            watch: {
+                'content'() {
+                    setTimeout(this.disarmInjectedHtml, 333);
+                }
+            },
+            mounted() {
+                setTimeout(this.disarmInjectedHtml, 333);
+            },
+            methods: {
+                /**
+                 * Disarm injected html
+                 * Make sure links and forms are contained within the cell.
+                 * Ideally, some old-skool flux functionality is introduced here.
+                 */
+                disarmInjectedHtml() {
+                    console.log(this.$refs);
+
+                    var container = this.$refs.injectedHtmlContainer;
+                    if (!(container && container.querySelector)) {
+                        // nothing to do.
+                        return;
+                    }
+                    console.log(container);
+
+                    [].forEach.call(container.querySelectorAll('a'), link => {
+                        link.addEventListener('click', event => {
+                            var href = event.target.getAttribute('href');
+
+                            if (href.match(/(^\/|:\/\/)/)) {
+                                event.target.setAttribute('target', '_blank');
+                                event.target.setAttribute('rel', 'noopener noreferrer');
+
+                                // proceed()
+                                return;
+                            }
+
+                            // Special behavior, let this return to the cell.
+                            this.$emit('interact', {
+                                link: {
+                                    href: href
+                                }
+                            });
+
+                            event.preventDefault();
+                        })
+                    });
+                    [].forEach.call(container.querySelectorAll('form'), form => {
+                        form.addEventListener('submit', event => {
+                            this.$emit('interact', {
+                                submit: {
+                                    target: event.target
+                                }
+                            });
+                            event.preventDefault();
+                        })
+                    });
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="exec-output-table" props="value,exec">
+    <div>
+        <!-- <table class="exec-output-table">
+            <thead>
+                <tr>
+                    <th v-for="key in headers">
+                        {{key}}
+                    </th>
+                </tr>
+            </thead>
+            <template v-for="row in value.data">
+                <tr>
+                    <td v-for="key in headers" @click="cellClick(row, key)" :style="row.style">
+                        {{row[key]}}
+                    </td>
+                </tr>
+                <tr v-if="drilldown.row === row">
+                    <td :colspan="headers.length" class="drilldown-container">
+                        <result-renderer v-if="drilldown.result" @interact="handleInteractions" :value="drilldown.result" :exec="exec"></result-renderer>
+                    </td>
+                </tr>
+            </template>
+        </table> -->
+        <my-table :data="value.data"></my-table>
+    </div>
+    <style scoped>
+        table {}
+
+        thead tr th {
+            position: sticky;
+            top: 0;
+            background: #e3e3e0;
+        }
+        
+        .drilldown-container {
+            padding-left: 25px;
+        }
+    </style>
+    <script>
+        export default {
+            data() {
+                return {
+                    drilldown: {
+                        url: null,
+                        row: null,
+                        result: null
+                    }
+                }
+            },
+            computed: {
+                headers() {
+                    var specialKeys = ['style', 'drilldown', 'drilldownUrl'];
+                    return Object.keys(this.value.data[0]).filter(k => {
+                        return k.substr(0, 2) !== '__' && !~specialKeys.indexOf(k);
+                    });
+                }
+            },
+            methods: {
+                async cellClick(row, column) {
+
+                    if (row.drilldownUrl) {
+                        this.drilldown.row = row;
+                        this.drilldown.result = null;
+                        this.drilldown.url = row.drilldownUrl;
+
+                        this.drilldown.result = await this.exec({
+                            'GET': this.drilldown.url,
+                            'POST': this.drilldown.row
+                        });
+
+                        this.drilldown.result = result;
+                    }
+                },
+                async handleInteractions(event) {
+                    if (event && event.link) {
+                        this.drilldown.result = null;
+                        this.drilldown.url = event.link.href;
+
+                        this.drilldown.result = await this.exec({
+                            'GET': this.drilldown.url,
+                            'POST': this.drilldown.row
+                        });
+
+                    } else if (event && event.submit) {
+                        var data = new URLSearchParams(new FormData(event.submit.target)).toString();
+                        data += '&' + new URLSearchParams(this.drilldown.row);
+
+                        this.drilldown.result = null;
+                        this.drilldown.result = await this.exec({
+                            'GET': this.drilldown.url,
+                            'POST': data
+                        });
+                    }
+                },
+
+            }
+        }
+    </script>
+</template>
+
+<template component="exec-output-csv" props="value">
+    <textarea onfocus="select()" style="width:100%;height:400px;" :value="csv">
+    </textarea>
+    <script>
+        export default {
+            computed: {
+                csv() {
+                    var sep = "\t";
+                    var data = this.value.data;
+                    var header = Object.keys(data.slice(0, 1).shift()).join(sep);
+                    var rows = data.map(row => Object.values(row).join(sep)).join("\n");
+                    return header + "\n" + rows;
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="exec-output-php-controller" props="value, exec">
+    <div>
+        <h1>PHP Controller</h1>
+        <div v-for="s in signature">
+            <a href="javascript:;" @click="run(s)">{{s.method}}</a>
+            (
+            <span v-for="(arg,index) in s.arguments">
+                <input :style="{minWidth: 50, maxWidth: 100/s.arguments.length, display: 'inline-block'}" @keyup.enter="run(s)" v-model="s.values[index]" :placeholder="s.name">,
+            </span>
+            )
+            <div v-if="s && s.result" style="padding-left: 40px;">
+                Result:
+                <result-renderer :value="s.result" :exec="exec"></result-renderer>
+            </div>
+        </div>
+        <pre>{{value}}</pre>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    signature: []
+                }
+            },
+            mounted() {
+                this.signature = Object.keys(this.value.meta.signature).map(method => {
+                    var sig = this.value.meta.signature[method];
+                    return {
+                        ...sig,
+                        method,
+                        values: sig.arguments.map(_ => ''),
+                        result: null
+                    }
+                })
+            },
+            methods: {
+                async run(sig) {
+                    sig.result = null;
+                    var result = await this.exec({
+                        'phpControllerCall': [sig.method, sig.values]
+                    });
+
+                    sig.result = result;
+                }
+            }
+        }
+    </script>
+</template>

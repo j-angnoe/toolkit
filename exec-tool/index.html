@@ -1,0 +1,15 @@
+<app>
+    <template #nav-extra>
+        <div class="navbar-text" style="position:absolute;right:20px;">
+            <small>
+                
+                <?php if ($_ENV['HARNESS_INSIDE_DOCKER'] ?? false): ?>
+                    <?= preg_replace('~^[^/]+/~','', substr($_ENV["HARNESS_ORIGINAL_PATH"] ?? getcwd(), -30)); ?>
+                    (dockerized)
+                <?php else: ?>
+                    <?= preg_replace('~^[^/]+/~', '', substr(getcwd(), -30)) ?>
+                <?php endif; ?>
+            </small>
+        </div>
+    </template>
+</app>
