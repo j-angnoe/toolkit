@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title><?= $title ?? '' ?></title>
+        <style>
+        html, body {
+            background: #d6f5f5 !important;
+            padding: 15px;
+            font-family: Sans;
+        }
+        body .main-nav { 
+            border-radius: 10px;
+            background: white;
+        }
+
+        body .main-container {
+            border-radius: 10px;
+            background: white;
+            margin-top: 10px;
+            padding: 10px;
+            padding-top: 20px;
+        }
+        .container-fluid {
+            background: transparent;
+        }
+
+       
+    </style>
+    </head>
+    <body>
+
+        <?php if (!preg_match('~<app\s*>~', $content)): ?>
+            <app></app>
+        <?php endif; ?>
+        
+        <template component="app">
+            <div>
+                <nav class="main-nav navbar nav navbar-expand">
+                    <div class="navbar-brand">
+                        <slot name="brand">
+                        <?= $title ?? '' ?>
+                        </slot>         
+                    </div>
+                    <div class="navbar-nav">
+                        <router-link 
+                        class="nav-link"
+                        v-for="r in $router.options.routes"
+                        :to="r.path">
+                            <i v-if="r.icon" class="fa" :class="r.icon"></i>
+                            <span v-if="r.name">{{r.name}}</span>
+                            <span v-else-if="r.path == '/'"><i class="fa fa-home"></i>&nbsp;</span>
+                            <span v-else>{{r.path}}</span>
+                        </router-link>
+                        <slot name="navbar"></slot>
+                    </div>
+                    <slot name="nav-extra"></slot>
+                </nav>
+                <div class="container-fluid main-container">
+                    <router-view></router-view>
+                </div>
+            </div>
+            <script>
+                export default {
+                    mounted(){
+                        console.log(this.$router);
+                    }
+                }
+            </script>
+        </template>
+
+        <?php echo $content ?>
+
+        <!-- @inserts cdn -->
+
+        <!-- @snippet 081ebc-27b996-c2c355-b35a54 -->
+
+        <link rel="stylesheet" href="https://unpkg.com/bootstrap@4.5.3/dist/css/bootstrap.min.css">
+        <!-- @endsnippet -->
+
+        <!-- @snippet 1e7823-19044b-5d3f90-61a1d9 -->
+        <link rel="stylesheet" href="https://unpkg.com/font-awesome@4.7.0/css/font-awesome.css">
+        <!-- @endsnippet -->
+
+        <!-- @endinserts -->
+
+        <?php foreach ($javascripts ?? [] as $js): ?>
+            <script src="<?= $js['url'] ?>"></script>
+        <?php endforeach; ?>
+        
+        <?php foreach ($stylesheets ?? [] as $css): ?>
+            <link rel="stylesheet" href="<?= $css['url'] ?>">
+        <?php endforeach; ?>
+
+        <script src="/harness/bundle.js"></script>
+
+        <script>
+            <?= $server->getApiBridge(); ?>
+        </script>
+
+        <link rel="stylesheet" href="/harness/bundle.css">
+
+        <style>
+            <?php foreach ($object->glob('*.css','**/*.css') as $css_file): ?>
+            <?php echo "/* include $css_file */\n"; ?>
+            <?php include_once $css_file; ?>
+            <?php endforeach; ?>
+        </style>
+
+        <?php if (!empty($object->glob('bundle.js'))): ?>
+            <script src="dist/bundle.js"></script>
+            <script src="dist/bundle.css"></script>
+        <?php endif; ?>
+
+        <script>
+            /** link-to-storage requires this */
+            window.APP_NAME = <?= json_encode($object->data['name'] ?? 'SomeTool') ?>;
+
+            Vue.prototype.PACKAGE_JSON = <?= json_encode($object->data); ?>
+
+            // Check if the server is still alive
+            // after you've been somewhere else.
+            window.onfocus = async function (event) {
+                try { 
+                    await axios.get('/__alive__');
+                } catch (e) {
+                    dialog.dialog(`
+                        <div width=500 title="Dead server" height=200 centered=true modal=true>
+                            <p style="padding: 15px;text-align: center;">
+                                <i 
+                                    class="fa fa-exclamation-triangle" 
+                                    style="font-size: 20px;"
+                                ></i>
+                                Please restart the server or close this tab...
+                            </p>
+                        </div>
+                    `)
+                    window.onfocus = function() {}
+                }
+            }
+
+        </script>
+    </body>
+</html>
