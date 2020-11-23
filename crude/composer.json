@@ -1,0 +1,12 @@
+{
+    "name": "joshua/crude",
+    "authors": [
+        {
+            "name": "Joshua Angnoe",
+            "email": "joshua@fluxfx.nl"
+        }
+    ],
+    "require": {
+        "greenlion/php-sql-parser": "^4.3"
+    }
+}

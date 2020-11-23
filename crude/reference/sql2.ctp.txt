@@ -1,0 +1,244 @@
+<?php
+
+
+
+
+      
+$urlTableSettings = "crude/sql2_table_settings";
+
+$urlShowResult = "crude/sql2_result_viewer";
+
+$urlsdfsd = "crude/sql2_querier";
+
+
+echo widget::get('hpanes')
+   ->left(function () use ($result, $searchSelectTable) { 
+      ob_start();
+            
+            
+            echo '<div>';
+      
+            ?><code type="init"><!--
+            $(this).filterable({
+               element: '.search-tables'
+            });
+            --></code><?php
+         
+            echo '<input class=search-tables placeholder="Tabellen (Zoek)" '.'style="font-weight:bold; border:none ; width:100%;"'.'>';
+            foreach (Query::showTables() as $t) { 
+               echo '<div filter="' . $t.'" class="action-button selectable" contextvar="selectedTable" contextval="'.$t.'">' . $t . '</div>';  
+            }
+            echo '</div>';
+            
+      return ob_get_clean();
+   })
+   ->right(function () use ($result) { 
+      ob_start();
+      
+      echo '<div>';
+         echo '<div class="tab selectable selected" contextvar="tabUrl" contextval="crude/sql2_result_viewer">Results</div>';
+         echo '<div class="tab selectable selected" contextvar="tabUrl" contextval="crude/sql2_querier">Query</div>';
+         echo '<div class="tab selectable" contextvar="tabUrl" contextval="crude/sql2_table_settings">Settings</div>';
+      
+      echo '</div>';
+      
+      echo '<div vpane=1>';
+      echo w('Flux')->class('showResults')->url($urlShowResult);
+      echo '</div>';
+      
+      
+      ?><code type="init"><!--
+            var ctx = this;
+            
+            flx(this).context('selectedTable#CrudeSql2Tab', function (event, value) {
+               flx(this).context('query', "SELECT * FROM " + value);
+            });
+            flx(this).context('tabUrl#CrudeSql2Tab', function (event, value) { 
+               flx($('.showResults', ctx)).load(value);
+            });
+            flx(this).context('query#CrudeSql2Tab', function (event, value) {
+               flx($('.showResults', ctx)).load("crude/sql2_result_viewer?query=" + escape(value));
+            });
+            
+            flx($('.showResults', ctx)).contextData = flx(this).contextData;
+            
+            --></code><?php
+      
+      return ob_get_clean();
+   });
+;
+   
+?><script type="text/javascript">
+/**
+ * Filter filterables. A Filterable is an element with a `filter="xxx"` html attribute.
+ * 
+ * Working example:
+ * <ul id=target>
+ *    <li filter="Item 1">Item 1</li>
+ *    <li filter="Item 2">Item 2</li>
+ * </ul>
+ * 
+ * <scr.ipt>$(function () { $('#target').filterable(); });</scr.ipt>
+ * 
+ * You can supply your own filter-search element:
+ * 
+ * $(..).filterable( { element: $(...) } );
+ **/
+$.fn.filterable = function (settings) {
+   if (!settings || typeof settings == "string" && settings == "auto") {
+      settings = {element:'auto'};
+   }
+   
+   settings = $.extend({}, {
+      attribute: 'filter',
+      element: 'input.filter'
+   }, settings);
+   
+   //console.log("Filterable settings");
+   //console.log(settings);
+   
+   //var filter_set = $(this).find(); dit geeft 251 items. ???
+   var filter_set = $('[' + settings.attribute + ']:not(form)', this); // geeft 250 items..
+   
+   /** debug 
+   $(filter_set).each(function () { 
+      console.log("Element " + $(this).attr('filter') + " " + $(this).attr('class'));
+   });
+   **/
+   
+   var filter_element;
+   
+   var min_opacity = 1.0; //settings.min_opacity;
+   
+   if (typeof settings.element == "string") {
+      if (settings.element == "auto") {
+         filter_element = $('<input size=3 class="auto filter" placeholder="Zoeken">').prependTo($(this).parent()).css({
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            zIndex: 100,
+            opacity: min_opacity
+         })
+         .blur(function () { if (this.value == '') $(this).css('opacity',min_opacity); })
+         .keyup(function () { if (this.value > '') $(this).css('opacity',1.0);  })
+         ;
+         
+         // Autofocus is irritant settings.autofocus = true;
+      } else {
+         filter_element = $(this).find(settings.element);
+      }
+   } else {
+      filter_element = $(settings.element);
+   }
+
+   if (settings.autofocus) {
+      $(this).hover(function () {
+         if (!$(document.activeElement).is(':input:visible:not([type=checkbox]):not([type=radio]):not(.filter)')) {
+            if (!$(filter_element).is(':focus')) {
+               $(filter_element).focus();
+            }
+         }
+      }).mouseup(function (e) {
+         if (!$(e.target).is(':input:visible:not(.filter)')) {
+            if (!$(filter_element).is(':focus')) {
+               $(filter_element).focus();
+            }
+         }
+      });
+   }
+   
+   var filter_do_search = function () {
+      var search = (this.value + '').toLowerCase();
+      if (!search) { $(filter_set).show(); return; } 
+      
+      if (search.length < 2) {
+         //search = new RegExp('^' + search + '|\s+' + search);
+         search = new RegExp('^' + search +'| ' + search);
+      } 
+      var matches = [];
+      $(filter_set).each(function () {
+         if ($(this).attr(settings.attribute) > '') { 
+            var value = ('' + $(this).attr(settings.attribute)).toLowerCase();
+            if (value.match(search)) {
+               matches.push(this);
+            } else {
+               $(this).hide();
+            }
+         }
+      });
+      $(matches).show().parents().show();
+      flux.log("Do search with " + search);
+      
+      $(this).trigger('filterable-searched');
+      
+   };
+   
+   flux.log("Filter set:"); flux.log(filter_set.length);
+   
+   flux.log(filter_set);
+   
+   flux.log("Filter element"); flux.log(filter_element);
+   
+   //$(filter_element).bind('keyup', filter_do_search);
+   
+   $(filter_element).bind('keyup', function (event) {
+      flux.onsuggest(this, event, filter_do_search);
+   })
+   .keyup(); // Call key-up to directly filter on pre-selected values.
+   
+   
+   
+   
+   return filter_element;
+};
+</script><?php
+
+?><code type="init"><!--
+$(':input').bind('keydown', function (e) {
+
+   flux.onsuggest(this, e, function () {
+      $(this).trigger('suggest');   
+   });
+});
+
+$(':input[contextvar]').bind('change suggest', function () {
+   flx(this).context($(this).attr('contextvar'), $(this).val());
+});
+$(this).unbind('click.contextvarclick').bind('click.contextvarclick', function (e) {
+   if ($(e.target).is('*[contextvar][contextval]')) { 
+      flx(this).context($(e.target).attr('contextvar'), $(e.target).attr('contextval'));
+   }
+   
+   if ($(e.target).is('.selectable')) { 
+      $(e.target).toggleSelected();
+   }
+});
+
+--></code><?php
+
+
+?><style type="text/css">
+.left { 
+   padding: 0.5em;
+}
+.left .action-button { 
+   padding: 0.2em;
+   border-bottom: 1px solid rgba(0,0,0,0.15);
+}
+.selectable:hover { 
+   cursor: pointer;
+   background-color: #ffc;
+}
+.selectable.selected { 
+   font-weight: bold;
+}
+.left .action-button.selected { 
+   background-color: #f90;
+}
+.right .tab { 
+   display: inline-block;
+   padding: 0.5em;
+}
+</style><?php
+
+?>

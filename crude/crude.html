@@ -1,0 +1,291 @@
+<?php
+
+use PHPSQLParser\PHPSQLParser;
+use PHPSQLParser\PHPSQLCreator;
+
+class crude {
+    function list_tables() {
+        foreach (DB::fetchAll("SHOW TABLES") as $r) {
+            $r = (array) $r;
+            yield @reset($r);
+        }
+    }
+
+    
+    function view_table($table, $page = 0, $order, $filters) {
+        $query = "SELECT * FROM $table ";
+        if ($page) {
+            $length = 50;
+            $query .= " LIMIT " . ($page * $length) . ", $length";
+        }
+    }
+
+    function run_query($query, $options = []) { 
+        // remove comments 
+
+        $tree = (new PHPSQLParser())->parse($query);
+
+        // print_r($tree);
+        $query = preg_replace('~^--.+$~m', '', $query);
+        if ($tree['SELECT'] ?? false) {
+
+            /*
+               [LIMIT] => Array
+                (
+                    [offset] => 
+                    [rowcount] => 10
+                )
+            */
+            $offset = 0;
+            $length = 50;
+
+            if ($options['page'] ?? false) {
+                $offset = $length * $options['page'];
+            }
+
+            $tree['LIMIT'] = $tree['LIMIT'] ?? [
+                'offset' => $offset,
+                'rowcount' => $length
+            ];
+
+            if ($options['order'] ?? false) {
+                $tree['ORDER'] = [
+                    [
+                        'expr_type' => 'colref',
+                        'base_expr' => $options['order'][0],
+                        'direction' => $options['order'][1] ? 'DESC' : 'ASC'
+                    ] 
+                ];
+            }
+
+            $query = (new PHPSQLCreator())->create($tree);
+
+            $query = preg_replace('~select\s~i', 'SELECT SQL_CALC_FOUND_ROWS ', $query);
+
+            return [
+                'data' => DB::fetchAll($query),
+                'query' => $query,
+                'orderable' => true,
+                'parsed_tree' => $tree,
+                'num_rows' => DB::fetchOne('SELECT FOUND_ROWS() as num_rows')['num_rows']
+            ];
+        } else {
+            $data = DB::fetchAll($query);
+            return [
+                'data' => $data,
+                'orderable' => true,
+                'num_rows' => count($data)
+            ];
+        }
+
+    }
+}
+?>
+<style>
+    .list-group-item {
+        overflow: hidden;
+    }
+</style>
+<app>
+    <template #nav-extra>
+        <div class="navbar-text" style="position:absolute;right:20px;">
+            <small>
+                <?php if ($_ENV['HARNESS_INSIDE_DOCKER'] ?? false): ?>
+                    <?= preg_replace('~^[^/]+/~','', substr($_ENV["HARNESS_ORIGINAL_PATH"] ?? getcwd(), -30)); ?>
+                    (dockerized)
+                <?php else: ?>
+                    <?= preg_replace('~^[^/]+/~', '', substr(getcwd(), -30)) ?>
+                <?php endif; ?>
+            </small>
+        </div>
+    </template>
+</app>
+
+<template component="table-selector" props="value">
+    <div class="list-group">
+        <filtered :data="tables" @select="select($event)">
+            <template #item="{item}">
+                <div class="list-group-item" 
+                    :class="{active: item == value}" 
+                    @click="select(item)"
+                >
+                    {{item}}
+                </div>
+            </template>
+        </filtered>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    tables: []
+                }
+            },
+            async mounted() {
+                this.tables = await api.crude.list_tables();
+            },
+            methods: {
+                select(item) {
+                    this.$emit('input', item);
+                    this.$emit('select', item);
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="pagination" props="value, rows, length">
+    <ul class="pagination pagination-sm">
+        <li class="page-item " :class="{disabled: value == 0}">
+            <a class="page-link" href="#" @click="setPage(0)">First</a>
+        </li>
+        <li class="page-item " :class="{disabled: value == 0}">
+            <a class="page-link" href="#" @click="setPage('-1')">Previous</a>
+        </li>
+        <li class="page-item">
+            <a class="page-link" href="#">{{value + 1}}</a>
+        </li>
+        <li class="page-item" :class="{disabled: value == max}">
+            <a class="page-link" href="#" @click="setPage('+1')">Next</a>
+        </li>
+        <li class="page-item" :class="{disabled: value == max}">
+            <a class="page-link" href="#" @click="setPage(max)">Last</a>
+        </li>
+    </ul>
+    <script>
+        export default {
+            data() {
+                return {
+                    max: 0,
+                }
+            },
+            watch: {
+                value() { this.calculate() },
+                rows() { this.calculate() },
+                length() { this.calculate() },
+            },
+            mounted() {
+                this.calculate();
+            },
+            methods: {
+                calculate() {
+                    var max = Math.floor(this.rows / this.length);
+
+                    this.max = max;
+                    if (this.value > 3) {
+                        this.before = [0,1,2];
+                    }
+                    
+                    if (max > 3 && this.value < (max-4)) {
+                        this.after = [max];
+                    }
+                },
+                setPage(p) {
+                    if (p === '+1') {
+                        p = this.value + 1;
+                    } else if (p === '-1') {
+                        p = this.value - 1;
+                    }
+                    this.$emit('input', p);
+                }
+            }
+        }
+    </script>
+</template>
+
+<template component="table-querier" props="table">
+    <div v-ctrl-s="load" class="">
+        <textarea class="form-control" v-model="query" @keyup.ctrl.enter="load"></textarea>
+        <div v-if="result" class="data-container" >
+            <div v-if="result.num_rows" style="padding-top:8px;">
+                <b>Found rows:</b> {{result.num_rows}}
+                <div class="float-right">
+                    <pagination @input="setPage($event)" :value="page" :rows="result.num_rows" :length="50"></pagination>
+                </div>
+                <div style="clear:both;"></div>
+            </div>
+            <div style="height: calc(100vh - 280px); overflow: auto;">
+                <my-table :data="result.data" @order="setOrder":header-filters="true" >
+                    <template #extra-headers="{headers}">
+                        <pre>{{headers}}</pre>
+                    </template>
+                </my-table>
+            </div>  
+
+        </div>
+
+    </div>
+    <style scoped>
+        .data-container {
+            width: 100%;
+            height: calc(100vh - 210px);
+            overflow: auto;
+        }
+    </style>
+    <script>
+        export default {
+            data() {
+                return {
+                    columns: {},
+                    order: null,
+                    result: null,
+                    query: '',
+                    page: 0
+                }
+            },
+            mounted() {
+                this.query = "SELECT * FROM " + this.table;
+                this.load();
+            },
+            methods: {
+                async setPage(page) {
+                    this.page = page;
+                    this.load();
+                },
+                async load() {
+                    this.result = await api.crude.run_query(this.query, {
+                        order: this.order,
+                        page: this.page
+                    });
+                },
+                async setOrder(order) {
+                    this.order = order;
+                    this.page = 0;
+                    if (this.result.orderable) {
+                        this.load();
+                    }
+                }
+            }
+        }
+    </script>
+</template>
+
+<template url="/">
+    <div class="container-fluid" style="height:calc(100vh - 130px);overflow:auto;">
+        <div class="row" >
+            <div class="col-2" style="height:calc(100vh - 130px); overflow: auto;">
+                <table-selector v-model="selected_table" @select="openTable($event)"></table-selector>
+            </div>
+            <div class="col-10" style="height:calc(100vh - 130px);">
+                <table-querier v-if="selected_table" :table="s" v-for="s in [selected_table]" :key="s"></table-querier>
+            </div>
+        </div>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    selected_table: ''
+                }
+            },
+            mounted() {
+                this.link('selected_table').to.localStorage('SelectedTable');
+            },
+            methods: {
+                openTable(table) {
+                    
+                }
+            }
+        }
+    </script>
+</template>

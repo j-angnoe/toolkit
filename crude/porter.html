@@ -1,0 +1,489 @@
+<?php
+
+class dbgraph {
+
+    function __construct() {
+      $references = $this->calculateReferences();
+  
+      $this->references = $references;
+  
+      $tables = array_map('reset', DB::fetchAll("SHOW TABLES"));
+  
+      $vertices = $tables;
+      
+      $edges = [];
+      $edgeLookup = [];
+      foreach ($references as $tbl => $ref) {
+        list($table, $field) = explode('.', $tbl);
+        list($refTable, $refKey) = explode('.', $ref);
+  
+        $vertices[] = $table;
+        $vertices[] = $refTable;
+        $edges[] = [$refTable, $table];
+        $edgeLookup["$table->$refTable"] = [$field, $refKey];
+      }
+      $vertices = array_unique($vertices);
+  
+      $this->vertices = $vertices;
+      $this->edges = $edges;
+      $this->edgeLookup = $edgeLookup;
+  
+      $nodes = [];
+      foreach($vertices as $id) {
+        $nodes[$id] = array('in'=>array(), 'out'=>array());
+        foreach($edges as $e) {
+            if ($id==$e[0]) { $nodes[$id]['out'][]=$e[1]; }
+            if ($id==$e[1]) { $nodes[$id]['in'][]=$e[0]; }
+        }
+      }
+      $this->lookup = $nodes;
+      $this->sorted = topological_sort($vertices, $edges);
+
+    //   throw new Exception(json_encode($this, JSON_PRETTY_PRINT));
+
+    }
+  
+  
+    private function calculateReferences() {
+      $tables = array_map('reset', DB::fetchAll("SHOW TABLES"));
+      $references = [];
+  
+  
+      foreach ($tables as $table) {
+        $key = 'Create Table';
+        $create = DB::fetchOne("SHOW CREATE TABLE $table")[$key];
+        foreach (explode("\n", $create) as $l) {
+          if (preg_match_all('/`([^`]+)`/', $l, $matches)) {
+            // print_r($matches);
+            if (stripos($l, 'references') !== false && count($matches[0]) === 4) {
+              list(, $field, $refTable, $refKey) = $matches[1];
+              $references["$table.$field"] = "$refTable.$refKey";
+            }
+          }
+        }
+      }
+      return $references;
+    }
+    function getRelation($table1, $table2) {
+      return $this->edgeLookup["$table1->$table2"];
+    }
+  
+    /**
+     * Retrieve a list this table depends on.
+     */
+    function chain($table) {
+      $lk = $this->lookup[$table];
+  
+      $tables = [];
+      foreach ($lk['in'] as $in) {
+        foreach ($this->chain($in) as $_in) {
+          $tables[] = $_in;
+        }
+      }
+  
+      $tables[] = $table;
+      return $tables;
+    }
+  }
+  
+
+// internal function
+// from https://stackoverflow.com/q/11953021
+function topological_sort($nodeids, $edges) {
+  $L = $S = $nodes = array();
+  foreach($nodeids as $id) {
+      $nodes[$id] = array('in'=>array(), 'out'=>array());
+      foreach($edges as $e) {
+          if ($id==$e[0]) { $nodes[$id]['out'][]=$e[1]; }
+          if ($id==$e[1]) { $nodes[$id]['in'][]=$e[0]; }
+      }
+  }
+  foreach ($nodes as $id=>$n) { if (empty($n['in'])) $S[]=$id; }
+  while (!empty($S)) {
+      $L[] = $id = array_shift($S);
+      foreach($nodes[$id]['out'] as $m) {
+          $nodes[$m]['in'] = array_diff($nodes[$m]['in'], array($id));
+          if (empty($nodes[$m]['in'])) { $S[] = $m; }
+      }
+      $nodes[$id]['out'] = array();
+  }
+  foreach($nodes as $n) {
+      if (!empty($n['in']) or !empty($n['out'])) {
+          return null; // not sortable as graph is cyclic
+      }
+  }
+
+  return $L;
+}
+
+
+
+class Porter {
+  private function getPrimaryKey($table) {
+    $fields = DB::fetchAll("DESCRIBE $table");
+
+    foreach ($fields as $f) {
+      if ($f['Key'] === 'PRI') {
+        return $f['Field'];
+      }
+    }
+    throw new Exception('No primary key found for table ' . $table);
+  }
+
+
+  private function getGraph() {
+    return new dbgraph;
+
+  }
+
+  function go($string) {
+
+    $pieces = str_getcsv($string, ' ');
+
+    list ($table, $id) = $pieces;
+    $args = array_slice($pieces, 2);
+
+    $extraTables = [];
+    $skipTables = [];
+    $options = [];
+
+    $buffer = [];
+
+    $limitClause = " LIMIT 100";
+
+
+    $graph = new dbgraph;
+
+    foreach ($args as $arg) {
+      if (substr($arg, 0, 2) === '--') {
+        $options[substr($arg, 2)] = true;
+      }
+
+      if (substr($arg, 0,1) === '+') {
+        $extraTables[] = substr($arg,1);
+      }
+      if (substr($arg, 0, 1) === '-') {
+        $skipTables[] = substr($arg, 1);
+      }
+    }
+
+    $output = function ($table, $stream) use (&$buffer) {
+      // return json_encode($data, JSON_PRETTY_PRINT) . PHP_EOL;
+      $buffer[$table] = $buffer[$table] ?? ['records' => [], 'count' => 0];
+      foreach ($stream as $data) {
+        $buffer[$table]['records'][] = $data;
+      }
+
+      $buffer[$table]['count'] = DB::fetchAll("SELECT FOUND_ROWS() as val")[0]['val'];
+    };
+
+    $comment = function ($data) {
+      // echo json_encode(['_comment' => $data]) . PHP_EOL;
+    };
+
+    $pk = $this->getPrimaryKey($table);
+
+
+    if ($id === '?') {
+      // select a random record.
+      $id = DB::fetchAll("SELECT $pk as val FROM $table ORDER BY RAND() LIMIT 1")[0]['val'];
+      $comment("Randomly selected $id from $table");
+    }
+
+
+    if ($id === '!') {
+      // select last record
+      $id = DB::fetchAll("SELECT MAX($pk) as val FROM $table LIMIT 1")[0]['val'];
+      $comment("Selected most recent from $table, $id");
+    }
+    if ($id === '*') {
+      $id = "$table.$pk IS NOT NULL";
+    }
+
+    if (is_numeric($id)) {
+      $pk = $this->getPrimaryKey($table);
+      $condition = "WHERE $table.$pk = $id";
+    } elseif ($id) {
+      $condition = "WHERE $id";
+    } else {
+      $condition = '';
+    }
+
+    // Remember what we already fetched to prevent infinite fetch loops.
+    $fetched = [];
+
+    $fetch = function ($table, $condition, $joins = []) use ($graph, &$fetch, &$fetched, &$skipTables, &$extraTables, &$output, $comment, $limitClause) {
+
+      if (in_array($table, $fetched)) {
+        return [];
+      }
+
+      if (in_array($table, $skipTables)) {
+        return [];
+      }
+
+      $fetched[] = $table;
+
+
+
+
+      $node = $graph->lookup[$table];
+
+      foreach ($node['in'] as $n) {
+
+        list($f1, $f2) = $graph->getRelation($table, $n);
+        $_joins = ["$table->$n" => "LEFT JOIN $table ON $table.$f1 = $n.$f2"] + $joins;
+
+        $fetch($n, $condition, $_joins);
+      }
+
+      $query = "SELECT SQL_CALC_FOUND_ROWS DISTINCT $table.* FROM $table " . join("\n", $joins) . " $condition $limitClause";
+
+      $output($table, DB::fetchAll($query));
+
+      $comment(["Outs for $table" => $node['out']]);
+
+      foreach ($node['out'] as $n) {
+        if (in_array($n, $extraTables)) {
+          list($f2, $f1) = $graph->getRelation($n, $table);
+
+          $_joins = ["$n->$table" => "LEFT JOIN $table ON $table.$f1 = $n.$f2"] + $joins;
+          $fetch($n, $condition, $_joins);
+        }
+      }
+    };
+
+    $fetch($table, $condition);
+
+    $meta = [];
+    foreach ($fetched as $t) {
+      $meta[$t] = $graph->lookup[$t];
+    }
+
+    return ['data' => $buffer, 'meta' => $meta];
+  }
+
+  function graphviz() {
+
+    $graph = new dbgraph;
+    $refs = $graph->references;
+    $currentTable = null;
+
+    $str  = '';
+
+    $str .= "digraph {\n    rankdir=LR; \n";
+
+    foreach ($refs as $field => $ref) {
+      list($table, $field) = explode('.', $field);
+      list($refTable, $refKey) = explode('.', $ref);
+
+      $label = join('->', array_unique([$field, $refKey]));
+
+      $str .= "   \"$table\" -> \"$refTable\" [label=\"$label\"]\n";
+    }
+
+    // Make sure all independent nodes are displayed too.
+    foreach ($graph->vertices as $v) {
+        $str .= "$v\n";
+    }
+    
+    $str .= "\n}\n";
+    return $str;
+  }
+
+}
+
+
+?>
+<template url="/porter" name="Porter">
+    <div class="container-fluid">
+        <porter-cli></porter-cli>
+    </div>
+</template>
+
+
+
+<template component="porter-cli">
+  <div>
+    <h1>Porter</h1>
+
+    <div class="explanation">
+      <div v-if="!showExplanation"><a @click="showExplanation = true">Toon uitleg</a></div>
+      <div v-if="showExplanation">
+        <h2>Uitleg</h2>
+        <p style="white-space: pre-line;">Doel: records met alle gerelateerde data in kunnen zien.
+          Syntax: &lt;table> &lt;id> [+related table] [+related table]
+
+          Voorbeelden:
+          Toon user 1: <a @click="cliText = 'users 1'">`users 1`</a>
+          Toon een random user met zijn orders en bestelde artikelen: <a @click="cliText = 'users ? +orders +orderlines'">`users ? +orders +orderlines`</a>
+
+          Speciale ids:
+          - ! (uitroepteken) selecteert de laatste (met grootste primaire sleutel)
+          - ? (vraagteken) selecteert een random record
+          - * (sterretje) selecteert alle records uit de voorgenoemde tabel.
+        </p>
+        <div>
+          <button @click="showExplanation = false">Uitleg verbergen</button>
+        </div>
+        <hr>
+      </div>
+    </div>
+
+    <input placeholder="bv. users !" style="font-size:16px; padding:10px;" v-model="cliText" @keyup.enter="go()">
+
+    <div>
+      <button v-for="a in suggestedAdditions" @click="toggleTable(a)">+{{a}}</button>
+    </div>
+
+    <div v-if="!data && !meta">
+      <em>Voer een zoekterm in en druk op [enter]</em>
+    </div>
+    <div v-else>
+      <h2>Records: {{ numRows }}</h2>
+
+      <div v-for="(rows, tableName) in data" v-if="rows.count > 0">
+        <h3>{{tableName}} ({{rows.count}})</h3>
+        <my-table :data="rows.records" @click="maybeZoom(tableName, $event.row, $event.key)">
+        </my-table>
+      </div>
+    </div>
+
+    <!--
+      <graphviz-graph @click-node="toggleTable($event)"></graphviz-graph>
+    -->
+    <br><br><br>
+  </div>
+  <script>
+  export default {
+    data() {
+      return {
+        showExplanation: true,
+        cliText: '',
+        data: null,
+        meta: null
+      }
+    },
+    mounted() {
+      this.link('showExplanation').to.localStorage('PorterShowExplanation');
+      if (this.$route.query.query) {
+          this.cliText = this.$route.query.query;
+      }
+    },
+    watch: {
+        '$route.query.query'(query) {
+            this.cliText = query
+        },
+        cliText() {
+            clearTimeout(this.cliTextTimeout);
+
+            this.cliTextTimeout = setTimeout(() => {
+                this.$router.push({query: { query: this.cliText }});
+                this.go();
+            }, 666);
+        }
+    },
+    computed: {
+      suggestedAdditions() {
+        if (this.meta) {
+          var additions = new Set;
+          Object.keys(this.meta).forEach(table => {
+
+            this.meta[table].out
+              .filter(t => !(t in this.meta))
+              .map(additions.add.bind(additions))
+
+          })
+          return [...additions];
+        }
+        return [];
+      },
+      numRows() {
+        if (this.data) {
+          return Object.keys(this.data).map(table => {
+            return this.data[table].count || 0;
+          }).reduce((a,b) => a+b, 0);
+        }
+      }
+    },
+    methods: {
+      async go() {
+        var value = this.cliText;
+        var {data, meta} = await api.Porter.go(value);
+        this.data = data;
+        this.meta = meta;
+      },
+      toggleTable(table) {
+        if (~this.cliText.indexOf('+'+table)) {
+          this.cliText = this.cliText.replace(new RegExp("\\s?\\+" + table, 'g'), '');
+        } else {
+          this.cliText += " +" + table;
+        }
+
+        this.go();
+      },
+      maybeZoom(table, row, key) {
+        /* temporarily disabled.
+        if (key.indexOf('id') === 0) {
+          // alert("ZOOM TO " + table + " " + row[key] + " " + key + " ");
+          this.cliText = table + ' ' + row[key];
+          this.go();
+        }
+        */
+      }
+    }
+  }
+  </script>
+</template>
+
+<template url="/relations" name="Relations">
+    <div class="container-fluid">
+        <h2>Relational model of this project</h2>
+        <graphviz-graph></graphviz-graph>
+    </div>
+</template>
+
+<script async src="http://webgraphviz.com/viz.js"></script>
+
+<template component="graphviz-graph">
+  <div>
+    <div style="overflow: auto;" ref="svg"></div>
+  </div>
+  <style scope>
+  svg {
+    transform: scale(0.8);
+  }
+  </style>
+  <script>
+  var wait = timeout => new Promise(resolve => setTimeout(resolve, timeout));
+
+  export default {
+    async mounted() {
+
+      var graphString = await api.Porter.graphviz();
+
+      while(!window.Viz) {
+        await wait(100);
+      }
+
+      var svg_div = this.$refs.svg;
+
+      svg_div.innerHTML = "";
+      // Generate the Visualization of the Graph into "svg".
+      var svg = Viz(graphString, "svg");
+
+      svg_div.innerHTML = "<hr>"+svg;
+
+
+      [...svg_div.querySelectorAll('.node')].forEach(node => {
+        node.addEventListener('click', event => {
+          var nodeName = node.querySelector('title').innerHTML;
+          this.$emit('click-node', nodeName);
+        })
+      })
+    },
+    methods: {
+    }
+  }
+  </script>
+</template>
