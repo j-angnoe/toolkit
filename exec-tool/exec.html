@@ -176,7 +176,10 @@ require_once __DIR__ . '/exec.php';
 
             <!-- mode default -->
             <div v-else>
-                <pre v-if="value.content > ''">{{value.content}}</pre>
+                <div v-if="value.content > ''">
+                    <exec-output-html v-on="$listeners" :value="value"></exec-output-html>
+                    <pre v-else>{{value.content}}</pre>
+                </div>
                 <pre v-if="value.data > ''">{{value.data}}</pre>
             </div>
 

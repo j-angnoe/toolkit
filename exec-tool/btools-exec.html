@@ -1,18 +1,18 @@
 <?php
 
-function get_preg_match($_,$a)      { preg_match($a,$_,$b);     return $b ?: array(); } 
-function repl($x,$y,$z=null){
+if (!function_exists('repl')) { 
+    function repl($x,$y,$z=null){
 
-    if(is_array($x) && $z === null) { 
-       return str_replace(
-          array_keys($x),
-          array_values($x),
-          $y
-       );
+        if(is_array($x) && $z === null) { 
+        return str_replace(
+            array_keys($x),
+            array_values($x),
+            $y
+        );
+        }
+        return str_replace($x,$y,$z);
     }
-    return str_replace($x,$y,$z);
- }
- 
+}
 class BtoolsExec {
     
     private function writeAnnotations($code, $data) {
