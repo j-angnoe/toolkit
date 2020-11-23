@@ -1,0 +1,13 @@
+{
+    "name": "joshua/workbench",
+    "authors": [
+        {
+            "name": "Joshua Angnoe",
+            "email": "joshua@fluxfx.nl"
+        }
+    ],
+    "require": {
+        "samejack/php-argv": "^1.0",
+        "ralouphie/mimey": "^2.1"
+    }
+}
