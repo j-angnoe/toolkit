@@ -1,0 +1,161 @@
+<template component="tabbed-view">
+    <div>
+        <nav class="nav nav-tabs">
+
+        <a class="nav-link" v-for="(t, name) in tabs" @click="hideAll(); t.show()" :class="{active: activeTabTitle == name}">{{name}}</a>
+        </nav>
+        <div ref="tabContainer" class="active-tab-container">
+        <slot></slot>
+        </div>
+    </div>
+  <script>
+  export default {
+    props: [
+      'localStorage','sessionStorage','value'
+    ],
+    data() {
+      return {
+        activeTabTitle: null,
+        tabs: null
+      }
+    },
+    mounted() {
+        var map = new WeakMap();
+        var isFirst = true;
+  
+        var isSelected = child => {
+          if (isFirst) {
+            isFirst = false;
+            return true;
+          }
+          return false;
+        };
+  
+        if (this.value) {
+            this.activeTabTitle = this.value;
+        }
+
+        if (this.sessionStorage) {
+          this.link('activeTabTitle').to.sessionStorage(this.sessionStorage);
+        } else if (this.localStorage) {
+          this.link('activeTabTitle').to.localStorage(this.localStorage);
+        }
+  
+        if (this.activeTabTitle) {
+          isSelected = child => {
+            return child.getAttribute('title') === this.activeTabTitle ||
+            child.getAttribute('value') === this.activeTabTitle
+            ;
+          };
+        }
+  
+        this.$refs.tabContainer.childNodes.forEach(child => {
+          // console.log(child, 'tab child');
+          if (child && child.hasAttribute && child.hasAttribute('title')) {
+            var tabTitle = child.getAttribute('title');
+            child.show = () => {
+              child.style.display = 'block';
+              if (child.hasAttribute('value')) { 
+                this.$emit('input', child.getAttribute('value'));
+              }
+              this.activeTabTitle = tabTitle;
+            };
+            child.hide = function () {
+              child.style.display = 'none';
+            };
+  
+            if (isSelected(child)) {
+              child.show();
+            } else {
+              child.hide();
+            }
+  
+            child.removeAttribute('title');
+  
+            map[tabTitle] = child;
+          }
+        });
+  
+        this.tabs = map;
+    },
+    methods: {
+      hideAll() {
+        Object.keys(this.tabs).map((key) => {
+          this.tabs[key].hide();
+        });
+      }
+    }
+  }
+  </script>
+</template>
+<template component="filtered" props="data">
+    <div>
+        <div style="position:sticky;top:0;">
+            <input 
+                class="form-control" 
+                v-model="search" 
+                type="search" 
+                placeholder="Search"
+                @keyup.enter="selectFirst()"
+            >
+        </div>
+        <div>
+            <div v-if="search && filtered.length == 0">
+                <em>No results</em>
+            </div>
+            <template v-for="s in filtered" >
+                <div @click="$emit('select',s)">
+                  <slot name="item" v-bind="{item:s}" ></slot>
+                </div>
+            </template>
+        </div>
+    </div>
+    <script>
+    export default {
+        data() {
+            return {
+                search: ''
+            }
+        },
+        computed: {
+            filtered() {
+                var regexp = new RegExp(this.search, 'i');
+                return this.data.filter(i => {
+                    var str = typeof i == 'string' ? i : Object.values(i).join(',');
+                    return regexp.test(str);
+                })
+            }
+        },
+        mounted() {
+            
+        },
+        methods: {
+            selectFirst() {
+                if (this.filtered[0]) {
+                    this.$emit('select', this.filtered[0]);
+                }
+            }
+        }
+    }
+    </script>
+</template>
+<template component="ui-toggle">
+    <span>
+        <span v-if="!toggled">
+            <a href="javascript:;" @click="toggled = true">{{title}}</a>
+        </span>
+        <div v-else><slot :close="() => toggled = false" /></div>
+    </span>
+<script>
+    'short';
+    return class {
+        props = ['title','storageKey'];
+        toggled = false;
+        mounted() { 
+            if (this.storageKey) {
+                this.link('toggled').to.localStorage(this.storageKey);
+            }
+        }
+    }
+    </script>
+</template>
