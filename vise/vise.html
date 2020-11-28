@@ -33,7 +33,7 @@ class controller {
         if ($bootstrap) {
             require_once $bootstrap;
         }
-        
+
         $errors = [];
         
         set_error_handler(function($errno, $errmsg, $errfile) use (&$errors) { 
@@ -86,7 +86,13 @@ class controller {
         <h2>Vise on {{vise.file}}</h2>
         <pre><em>{{vise.vise}}</em></pre>
         <hr>
-        Input: <br>
+        <div>
+            <b>Input: </b>
+            <a href="javascript:;" @click="run()">Run</a>
+            <label>
+                <input type="checkbox" v-model="autoRun"> auto-run
+            </label>
+        </div>
         <textarea 
             v-model="input" 
             v-tab
@@ -98,7 +104,7 @@ class controller {
             v-focus>
 
         </textarea>
-        <button type="button" @click="run()">Run</button>
+        
         <br>
         <div v-if="loading">Loading...</div>
 
@@ -146,6 +152,7 @@ class controller {
             loading = false;
             toggleInput = false;
             toggleErrors = false;
+            autoRun = true;
 
             computed = {
                 previewInput() {
@@ -157,11 +164,14 @@ class controller {
             };
             constructor() {
                 window.addEventListener('focus', async (e) => {
-                    this.loading = true;
-                    await wait(500);
-                    this.loading = false;
-                    this.run();
+                    if (this.autoRun) { 
+                        this.loading = true;
+                        await wait(500);
+                        this.loading = false;
+                        this.run();
+                    }
                 })
+                this.link('autoRun').to.localStorage('ViseAutoRun');
                 this.link('input').to.localStorage('ViseInputFor' + this.vise.file);
             }
 
