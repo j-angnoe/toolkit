@@ -1,1 +1,4 @@
 **/*.html linguist-language=PHP
+**/dist linguist-generated
+**/build linguist-generated
+**/docs linguist-documentation
