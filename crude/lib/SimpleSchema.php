@@ -157,7 +157,7 @@ class TableDefinition {
         });
 
         foreach ($addedFields as $ax => $a) {
-            if ($rename = get_preg_match($a['comment'], '~originally:\s*\`*(\w+)\`*~')) {
+            if ($rename = get_preg_match($a['comment'] ?? '', '~originally:\s*\`*(\w+)\`*~')) {
                 $renamed_field = $rename[1];
                 if (isset($removedFields['field:'.$renamed_field])) {
                     $oldFields[$ax] = $oldFields['field:' . $renamed_field];
