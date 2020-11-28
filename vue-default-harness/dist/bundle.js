@@ -14621,6 +14621,7 @@ if ("development" === 'production') {
   module.exports = require('./vue.common.dev.js');
 }
 },{"./vue.common.dev.js":"node_modules/vue/dist/vue.common.dev.js"}],"node_modules/vue-blocks/vue-component-framework.js":[function(require,module,exports) {
+var process = require("process");
 
 /**
  * Vue Component Framework
@@ -14669,8 +14670,50 @@ function domComponentCollectorRaw() {
     var getObject = function () {
     	var object = {};
     	if (script) {
-    		var code = script.innerHTML.replace(/export default/,'module.exports = ');
+            
+            var code = script.innerHTML.replace(/export default/,'module.exports = ');
+            var process = comp => comp;
 
+            if (code.match("'short';")) {
+                code = code.replace(/return class \{/, 'module.exports = class {');
+                code = code.replace(/\sconstructor\s*\(/, 'mounted(');
+                code = code.replace(/\sdestructor\s*\(/, 'unmounted(');
+                process = function(obj) {
+                    console.log('obj',obj);
+                    
+                    var data = new obj;
+                    var {props, watch, computed, components, directives, ...data} = data;
+                    var lifeCycleMethods = ['beforeCreate', 'created', 'beforeMount', 'mounted', 'beforeUpdate', 'updated', 'activated', 'deactivated', 'beforeUnmount', 'unmounted', 'errorCaptured', 'renderTracked', 'renderTriggered'];
+                    var methods = {};
+                    var lifeCycle = {};
+                    for (var method of Object.getOwnPropertyNames(obj.prototype)) {
+                        if (method == 'constructor') continue;
+                        if (typeof obj.prototype[method] == 'function') {
+                            if (~lifeCycleMethods.indexOf(method)) { 
+                                lifeCycle[method] = obj.prototype[method];
+                            } else {
+                                methods[method] = obj.prototype[method];
+                            }
+                            delete data[method];
+                        } 
+                    }
+
+                    var comp = {
+                        data() {
+                            return JSON.parse(JSON.stringify(data));
+                        },
+                        props,
+                        watch,
+                        computed, 
+                        components,
+                        directives,
+                        ...lifeCycle,
+                        methods
+                    }
+                    console.log(comp);
+                    return comp;
+                }
+            }
     		var matches = [];
 
             var require_regex = /require\s*\(['"]([A-Za-z0-9\-\./]+)['"]\)/ig; /* fix syntax highlight: ' */
@@ -14682,10 +14725,10 @@ function domComponentCollectorRaw() {
     		if (matches) {
     			return Promise.all(matches).then(done => {
     				console.log("All matches have been resolved.");
-    				return commonJsExec(code);
+    				return process(commonJsExec(code));
     			})
     		} else {
-    			return commonJsExec(code);
+    			return process(commonJsExec(code));
     		}
 
     		
@@ -14996,7 +15039,7 @@ module.exports = {
 	collectRoutes: collectRoutes
 }
 
-},{}],"node_modules/vue-router/dist/vue-router.esm.js":[function(require,module,exports) {
+},{"process":"../../../../../usr/local/lib/node_modules/parcel-bundler/node_modules/process/browser.js"}],"node_modules/vue-router/dist/vue-router.esm.js":[function(require,module,exports) {
 "use strict";
 
 Object.defineProperty(exports, "__esModule", {
@@ -19267,6 +19310,7 @@ function launchDialogPromise() {
   };
 
   promise.dialog = launchDialog(data);
+  promise.dialog.$on('close', reject);
   return promise;
 }
 },{}],"bundle.js":[function(require,module,exports) {
@@ -19437,14 +19481,21 @@ _vue.default.prototype.link = function link(key) {
 
 var autoSaveHandlers = [];
 document.addEventListener('keydown', function (event) {
-  if (event.ctrlKey && event.which === 83) {
+  if (event.ctrlKey && event.key === "s") {
     event.preventDefault();
     console.log(autoSaveHandlers);
-    var p = event.target.parentNode;
+    var p = event.target;
 
     while (p && p.parentNode) {
       if (p.autoSave) {
         return p.autoSave(event);
+      }
+
+      if (p.form) {
+        p.form.dispatchEvent(new Event('submit', {
+          cancelable: true
+        }));
+        return;
       }
 
       p = p.parentNode;
