@@ -3,17 +3,17 @@
 Developer Tools, prototypes and stuff for making tools and prototypes.
 
 ## Tools 
-### Crude
+### [Crude](./crude)
 A database table manager / companion I've been using for years in one way or another.
 
-### Exec-tool
+### [Exec-tool](./exec-tool)
 Quickly execute code inside the project, but this time via an external tool instead of embedded in the project.
 
-### Vise
+### [Vise](./vise)
 Clamp down on your code and enjoy the tighest feedback loop you could imagine.
 
 ## Stuff for making tools
-### Harness
+### [Harness](./harness)
 A good start is half the work. But before you can really start building your prototype
 you usually have to write a lot of boilerplate, installing dependencies, searching and collecting 
 useful bits and pieces you wrote earlier and copy-paste. 
@@ -75,7 +75,7 @@ This example demonstrates:
 - The 'short' syntax allows us to write less Vue Component boilerplate.
 - The default harness supplies us bootstrap and a bit of background color.
 
-### The default harness
+### [The default harness](./vue-default-harness)
 Each tool will have access to stuff inside your default harness. The default harness is the
 place to put stuff you use the most: php functions and classes, components, javascripts, etc.
 
