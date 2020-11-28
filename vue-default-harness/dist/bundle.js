@@ -19631,6 +19631,45 @@ require('./components/dialog/index');
 require('./components/dialog/dialog.css');
 /* @endsnippet */
 
+/* @snippet 7ab6ab-c4cac7-3b9d1c-aa6cea */
+
+/**
+ * v-focus
+ * @common 7ab6ab-c4cac7-3b9d1c-aa6cea/focus.js
+ * To be applied directly on an element
+ * 
+ * @usage <input v-focus>
+ * @author Joshua Angnoe
+ * @package VueBase
+ */
+
+
+_vue.default.directive('focus', {
+  inserted: function inserted(el) {
+    el.focus();
+  }
+});
+/**
+ * v-focus-first
+ * 
+ * To be applied on a container, will set the focus to the first
+ * input 
+ * 
+ * @usage <div v-focus-first> .... <input name="input"> </div>
+ */
+
+
+_vue.default.directive('focus-first', {
+  inserted: function inserted(el) {
+    setTimeout(function () {
+      try {
+        el.querySelector('input,select,textarea').focus();
+      } catch (ignore) {}
+    }, 200);
+  }
+});
+/* @endsnippet */
+
 /* @endinserts */
 
 

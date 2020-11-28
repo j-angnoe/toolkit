@@ -275,6 +275,45 @@ Vue.use(VueRouter);
 	
 /* @endsnippet */
 
+/* @snippet 7ab6ab-c4cac7-3b9d1c-aa6cea */
+
+	
+	/**
+	 * v-focus
+	 * @common 7ab6ab-c4cac7-3b9d1c-aa6cea/focus.js
+	 * To be applied directly on an element
+	 * 
+	 * @usage <input v-focus>
+	 * @author Joshua Angnoe
+	 * @package VueBase
+	 */
+	
+	Vue.directive('focus', {
+	    inserted(el) {
+	        el.focus()
+	    }
+	});
+	
+	/**
+	 * v-focus-first
+	 * 
+	 * To be applied on a container, will set the focus to the first
+	 * input 
+	 * 
+	 * @usage <div v-focus-first> .... <input name="input"> </div>
+	 */
+	Vue.directive('focus-first', {
+	    inserted(el) {
+	        setTimeout(() => {
+	            try { 
+	                el.querySelector('input,select,textarea').focus();
+	            } catch(ignore) { }
+	        }, 200);
+	    }
+	});
+	
+/* @endsnippet */
+
 /* @endinserts */
 
 Vue.prototype.api = window.api;
