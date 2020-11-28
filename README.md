@@ -71,7 +71,7 @@ This example demonstrates:
 - Harness serves the tool
 - An api bridge allows you to run method `calculate` of the `my_calculator` class, it marshalles
     the arguments returns you the exact same result as your function returned.
-- The <template url="/"> is a vue-blocks way of defining the page component for /
+- The `<template url="/">` is a vue-blocks way of defining the page component for /
 - The 'short' syntax allows us to write less Vue Component boilerplate.
 - The default harness supplies us bootstrap and a bit of background color.
 
