@@ -169,13 +169,18 @@ function _start_dockerized($path, $opts) {
 if ($argv[1]) {
     switch ($argv[1]) {
         case 'build':
-        break;
         case 'watch':
                     
         // Automagic building of bundle when you have request a bundle.js file.
         if (realpath('bundle.js')) { 
+            $options = '';
+            $command = 'build';
+            if ($argv[1] == 'watch') {
+                $command = 'watch';
+                $options = '--no-hmr';
+            }
             if (empty($cmd = command("ps aux | grep parcel | head -n -2 | grep " . escapeshellarg(realpath('bundle.js'))))) {
-                system("parcel watch " . realpath('bundle.js') . ' --no-hmr --no-source-maps &');
+                system("parcel $command " . realpath('bundle.js') . " $options --no-source-maps &");
             } else {
                 echo "There is already a bundler running..";
                 print_r($cmd);
@@ -184,6 +189,23 @@ if ($argv[1]) {
             echo "Could not find a bundle.js file here..";
         }
 
+        break;
+        case 'init':
+            if ($argv[2]) {
+                mkdirr($argv[2]);
+                chdir($argv[2]);
+            } 
+            $object = new Harness(getcwd());
+            $source = $object->defaultHarnessPath . '/default/template';
+            if (is_dir($source)) { 
+                system("rsync --ignore-existing -razv $source/ .");
+                $package = read_json('package.json');
+                $package['name'] = basename(getcwd());
+                write_json('package.json', $package);
+                echo "$argv[2] was initialized.";
+            } else {
+                echo "The default harness does not include a template for new projects.";
+            }
         break;
         case 'exec':
         case 'run':
