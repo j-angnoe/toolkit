@@ -465,7 +465,8 @@ function launchDialogPromise(...opts) {
     }
   };
   
+  
   promise.dialog = launchDialog(data);
-
+  promise.dialog.$on('close', reject);
   return promise;
 }
