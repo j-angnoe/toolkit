@@ -44,7 +44,7 @@ if (!function_exists('dd')) {
     // @todo - Make this more sophisticated.
     function dd($data = null)
     {
-        throw new Exception(json_encode($data));
+        throw new Exception(json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 }
 
@@ -250,8 +250,8 @@ if (!function_exists('get_preg_match_all')) {
     {
         if (preg_match_all($pattern, $subject, $matches)) {
             $result = array();
-            foreach ($b as $bx => $by) foreach ($by as $byx => $byy) $c[$byx][$bx] = $byy;
-            return $c;
+            foreach ($matches as $bx => $by) foreach ($by as $byx => $byy) $result[$byx][$bx] = $byy;
+            return $result;
         }
         return array();
     }
@@ -284,5 +284,40 @@ if (!function_exists('ymdinterval')) {
         $r = array(date('Y-m-d', $a), $b);
         sort($r);
         return $r;
+    }
+}
+
+
+
+if (!function_exists('findClosestFile')) { 
+    /**
+     * Super handy function to search for the closest
+     * file given some path.
+     * 
+     * findClosestFile('package.json', '/path/to/my/project/app/some/folder')
+     * might return /path/to/my/project/package.json
+     */
+    function findClosestFile($filename, $path = null) 
+    {
+        // paths from .git, package.json, composer.json
+
+        $tryFiles = !is_array($filename) ? [$filename] : $filename;
+        // print_R($tryFiles);
+
+        $currentPath = realpath($path) ?: getcwd() . "/" . $path;
+
+        while($currentPath > '/home' && $currentPath > '/') {
+            // echo $currentPath . "\n";
+            foreach ($tryFiles as $file) {
+                // echo "$currentPath/$file\n";
+
+                if (is_dir($currentPath . "/" . $file) || is_file($currentPath . "/" . $file)) {
+                    return $currentPath . '/' . $file;
+                }
+
+            }    
+            $currentPath = dirname($currentPath);
+        }
+        return false;
     }
 }
