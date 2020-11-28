@@ -97,7 +97,14 @@ function _start_dockerized($path, $opts) {
     if (!function_exists('yaml_parse')) {
         throw new Exception('To use docker, please install php extension yaml');
     }
-    $config = yaml_parse(`docker-compose config`);
+    
+    if ($opts['dockerfile']) {
+        $dockerfile = realpath($opts['dockerfile'].'/docker-compose.yml');
+    } else {
+        $dockerfile = realpath('docker-compose.yml');
+    }
+
+    $config = yaml_parse(`docker-compose -f $dockerfile config`);
 
     if (!($config && isset($config['services']))) { 
         throw new Exception('Docker service not found.');
@@ -113,12 +120,9 @@ function _start_dockerized($path, $opts) {
     }
 
     if (is_string($opts['docker'])) {
-        echo "it is a string";
         $foundVolumes = array_values(array_filter($foundVolumes, fn($v) => $v[0] === $opts['docker']));
         if (empty($foundVolumes)) {
             echo "You requested to start service " . $opts['docker'] . ", but there service does not include $path as volume.\n";;
-            echo "Ending it here.\n";
-            exit(1);
         }
     } elseif (empty($foundVolumes)) {
         echo "You requested to use docker, but there are no services that include $path as volume.\n";
@@ -126,21 +130,30 @@ function _start_dockerized($path, $opts) {
         exit(1);
     }
 
-    list($service, $localPath, $remotePath) = $foundVolumes[0];
-    
-    if (count($foundVolumes) > 1) {
-        echo "The following docker services have $path as volume: " . join(' ', array_map(fn($x) => $x[0], $foundVolumes)) . "\n";
-        echo "Using docker service $service\n";
+    $dockerArgs = [
+        "--volume '" . HARNESS_DIR . "':'/opt/harness'",
+    ];
+
+    if (!empty($foundVolumes)) { 
+        list($service, $localPath, $remotePath) = $foundVolumes[0];
+        
+        if (count($foundVolumes) > 1) {
+            echo "The following docker services have $path as volume: " . join(' ', array_map(fn($x) => $x[0], $foundVolumes)) . "\n";
+            echo "Using docker service $service\n";
+        }
+        $workingDirectory = str_replace($localPath, $remotePath, $path);
+    } else {
+        $service = $opts['docker'];
+        $localPath = realpath($path);
+        $remotePath = '/opt/cwd/';
+        $workingDirectory = '/opt/cwd/';
+        $dockerArgs[] = "--volume '$localPath':'$remotePath'";
     }
     
-    $workingDirectory = str_replace($localPath, $remotePath, $path);
     // HARNESS_DEFAULT_HARNESS_PATH
 
     $harness = new Harness($path);
     $defaultHarnessPath = $harness->defaultHarnessPath;    
-    $dockerArgs = [
-        "--volume '" . HARNESS_DIR . "':'/opt/harness'",
-    ];
 
     if ($defaultHarnessPath) {
         $dockerArgs[] = "--volume '$defaultHarnessPath':'/opt/default-harness'";
@@ -156,7 +169,7 @@ function _start_dockerized($path, $opts) {
 
     $dockerArgs = join(" \\\n", $dockerArgs);
     chdir($path);
-    $command = "docker-compose run \
+    $command = "docker-compose -f $dockerfile run \
         $dockerArgs \
         -p 0.0.0.0:$port:$port \
         {$service} sh -c '$START_ROUTER' $pipes;
