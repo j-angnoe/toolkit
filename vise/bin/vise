@@ -1,0 +1,3 @@
+#!/usr/bin/env php
+<?php
+system("harness " .(getcwd() . '/' . $argv[1]) . " --tool=" . dirname(__DIR__) . ' ' . join(' ',array_slice($argv, 2)));

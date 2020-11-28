@@ -1,0 +1,200 @@
+<?php
+
+class controller {
+    function list_vises() {
+        $excludeDirs = ['node_modules','build','dist','vendor','.cache'];
+
+        $findCommand = "find . -type d \( " . join(' -o ', array_map(fn($n) => '-name '.$n, $excludeDirs)) ." \) -prune -false -o -type f";
+
+        $files = array_map(fn($x) => substr($x, 2), explode("\n", trim(`$findCommand | xargs grep -l '@vise'`)));
+
+        $vises = [];
+        foreach ($files as $f) {
+            $content = file_get_contents($f);
+            foreach(extractBlock($content, '@vise') as $vise) {
+                $vises[] = [
+                    'file' => $f,
+                    'vise' => $vise
+                ];
+            }
+        }
+        return [
+            'vises' => $vises
+        ];
+    }
+
+    function run_vise($vise, $inputString) {
+        $autoload = findClosestFile('vendor/autoload.php');        
+        if ($autoload) {
+            require_once $autoload;
+        }
+
+        $bootstrap = findClosestFile(['bootstrap.php','bootstrap/cli.php','bootstrap/app.php']);
+        if ($bootstrap) {
+            require_once $bootstrap;
+        }
+        
+        $errors = [];
+        
+        set_error_handler(function($errno, $errmsg, $errfile) use (&$errors) { 
+            $errors[] = [$errno, $errmsg, $errfile];
+        });
+
+        ob_start();
+        require_once $vise['file'];
+        
+        ob_end_clean();
+        
+        $content = file_get_contents($vise['file']);
+        $namespaces = get_preg_match_all($content, '~^\s*use\s[^\n;]+;~m');
+        $namespaceString = join("\n", array_map(function($x) { return $x[0]; }, $namespaces));
+
+        $input = eval($namespaceString . "\n" . $inputString);
+
+        ob_start();
+        
+        $exception = false;
+
+        try { 
+            $viseCode = $vise['vise'];
+            if (trim($inputString) > '') {
+                $viseCode = preg_replace('~\$input\s*=~', '$__input=', $viseCode);
+            }
+            $fn = eval($namespaceString . "\n return function(\$input) { \n" . $viseCode . "\n};");
+            $result = $fn($input);
+        } catch (Exception $e) {
+            $result = '(uncaught exception)';
+            $exception = $e->getMessage();
+        }
+        $content = ob_get_clean();
+
+        return [
+            'last_run' => date('Y-m-d H:i:s'),
+            'vise' => $vise,
+            'input' => $input,
+            'returnValue' => $result,
+            'content' => $content,
+            'exceptions' => $exception,
+            'errors' => $errors
+        ];
+    }
+}
+
+?>
+<template component="run-vise" props="vise">
+    <div v-ctrl-s="run">
+        <h2>Vise on {{vise.file}}</h2>
+        <pre><em>{{vise.vise}}</em></pre>
+        <hr>
+        Input: <br>
+        <textarea 
+            v-model="input" 
+            v-tab
+            class="form-control"
+            style="font-family: monospace, mon; line-height:1.2em;font-size:11pt;"
+            @keyup.ctrl.enter="run"
+            @keyup.ctrl.s.prevent.stop="run"
+            v-autoheight
+            v-focus>
+
+        </textarea>
+        <button type="button" @click="run()">Run</button>
+        <br>
+        <div v-if="loading">Loading...</div>
+
+        <div v-else-if="result">
+            <hr>
+            <h3>Last run {{result.last_run}}</h3>
+
+            <div class="list-group-item"  @click="toggleInput = !toggleInput">       
+                <b>Input: </b>
+                <em v-if="!toggleInput">{{ previewInput }}</em>
+                <pre style="padding: 10px; padding-left: 35px; " v-if="toggleInput">{{result.input}}</pre>
+            </div>
+            <div v-if="result.exceptions && result.exceptions.length > 0" class="list-group-item">
+                <b>Exceptions: </b>
+                <pre>{{result.exceptions}}</pre>
+            </div>
+            <div v-if="result.errors && result.errors.length" @click="toggleErrors = !toggleErrors" class="list-group-item">
+                <b>Errors ({{result.errors.length}}): </b>
+                <em v-if="!toggleErrors">{{ previewErrors }}</em>
+                <table class="table" v-if="toggleErrors">
+                    <tr v-for="e in result.errors">
+                        <td>{{e[0]}}</td>
+                        <td>{{e[1]}}</td>
+                        <td>{{e[2]}}</td>
+                    </tr>
+                </table>
+            </div>
+            <div class="list-group-item" v-if="result.content">
+                <b>Content: </b>   
+                <pre>{{result.content || '(empty)'}}</pre>
+            </div>
+            <div class="list-group-item">
+                <b>Return value: </b>   
+                <pre>{{result.returnValue || '(empty)'}}</pre>
+            </div>
+            <pre style="margin-top:200px;">{{result}}</pre>
+        </div>
+    </div>
+    <script>
+        'short';
+
+        return class {
+            input = null;
+            result = null;
+            loading = false;
+            toggleInput = false;
+            toggleErrors = false;
+
+            computed = {
+                previewInput() {
+                    return JSON.stringify(this.result.input).substr(0,25) + '...';
+                },
+                previewErrors() {
+                    return JSON.stringify(this.result.errors.map(e => e[1])).substr(0, 25) + '...';
+                }
+            };
+            constructor() {
+                window.addEventListener('focus', async (e) => {
+                    this.loading = true;
+                    await wait(500);
+                    this.loading = false;
+                    this.run();
+                })
+                this.link('input').to.localStorage('ViseInputFor' + this.vise.file);
+            }
+
+            async run() {
+                this.result = await api.run_vise(this.vise, this.input);
+            }
+        }
+    </script>
+</template>
+<template url="/">
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-2">
+                <div class="list-group-item" v-for="v in vises" :class="{active: activeVise == v}" @click="activeVise = v">
+                    <b>{{v.file}}</b>
+                    <pre>{{v.vise}}</pre>
+                </div>
+            </div>
+            <div class="col-10" v-if="activeVise">
+                <run-vise :vise="activeVise"></run-vise>
+            </div>
+        </div>
+    </div>
+    <script>
+        'short';
+        return class {
+            vises = null;
+            activeVise = null;
+
+            async mounted() {
+                var result = await api.list_vises()
+                this.vises = result.vises;
+            }
+        }
+    </script>
+</template>

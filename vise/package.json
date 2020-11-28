@@ -1,0 +1,7 @@
+{
+    "name": "vise",
+    "version": "0.0.1",
+    "bin": {
+        "vise": "./bin/vise"
+    }
+}
