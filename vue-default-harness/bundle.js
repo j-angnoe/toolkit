@@ -136,15 +136,19 @@ Vue.use(VueRouter);
 	var autoSaveHandlers = [];
 	
 	document.addEventListener('keydown', event => {
-	    if (event.ctrlKey && event.which === 83) {
+	    if (event.ctrlKey && event.key === "s") {
 	        event.preventDefault();
 	        console.log(autoSaveHandlers);
-	        
-	        var p = event.target.parentNode;
+			
+	        var p = event.target;
 	        while(p && p.parentNode) {
 	            if (p.autoSave) {
 	                return p.autoSave(event);
-	            }
+				}
+				if (p.form) {
+					p.form.dispatchEvent(new Event('submit', { cancelable: true }));
+					return;
+				}
 	            p = p.parentNode;
 	        }
 	
