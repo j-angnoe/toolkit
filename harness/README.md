@@ -49,10 +49,22 @@ harness exec [controller] [method] [...args]
 harness exec [filename] [method] [...args]
 harness run  # alias for exec
 
+# Building `bundle.js` files for your tools
+npm install -g parcel;      # Parcel is a nice companion for prototyping
+cd my-tool;
+harness build .     # one time build
+harness watch .     # continious building 
+
+# Creating a harness tool
+harness init my-tool;
+cd my-tool;
+# start working on your tool
+
 # Harnass options 
 harnass [directory]
     --docker      # Run the tool inside a matching docker-container
     --docker=serviceName # Run the tool inside the this service.
+    --dockerfile    # Specify a dockerfile / path containing a dockerfile.
     --port        # Which port to run
     --no-browser  # Dont open a browser window
     --tool        # Specify tool directory (instead of assuming [directory] is a tool)
@@ -68,7 +80,4 @@ Assumes you have docker-compose and assumes that you run harness inside.
 - the fd command
 - parcel (npmjs.org/parcel) for automagic bundle building
 
-## Known issues
-- Parcel automagic build will (probably) not work when you run inside a 
-    docker container.
 
