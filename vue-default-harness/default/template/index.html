@@ -1,0 +1,28 @@
+<?php
+
+class controller {
+    function say_hello() {
+        return [
+            'hello from server',
+            'running php ' . phpversion()
+        ];
+    }
+}
+
+?>
+
+<template url="/">
+    <div class="container-fluid">
+        <h1>Jetzt geht's los</h1>
+        <pre><b>Server data: </b> {{ server_data }} </pre>
+    </div>
+    <script>
+        'short';
+        return class {
+            server_data = null;
+            async mounted() {
+                this.server_data = await api.say_hello()
+            }
+        }
+    </script>
+</template>
