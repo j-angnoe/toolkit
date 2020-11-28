@@ -3,6 +3,8 @@
 use PHPSQLParser\PHPSQLParser;
 use PHPSQLParser\PHPSQLCreator;
 
+require_once __DIR__ . '/lib/DB.php';
+
 class crude {
     function list_tables() {
         foreach (DB::fetchAll("SHOW TABLES") as $r) {
@@ -11,24 +13,112 @@ class crude {
         }
     }
 
-    
-    function view_table($table, $page = 0, $order, $filters) {
-        $query = "SELECT * FROM $table ";
-        if ($page) {
-            $length = 50;
-            $query .= " LIMIT " . ($page * $length) . ", $length";
+    function getColumns($table) {
+        $columns = [];
+        foreach (DB::fetchAll("SHOW COLUMNS FROM $table") as $c) {
+            $columns[] = $c['Field'];
         }
+        return $columns;
     }
 
+    /**
+     * Examples: 
+     * @vise
+     * $input = "SELECT ar.*, `ar`.`itemid` as itemunit FROM articles ar INNER JOIN article_images ai";
+     * // $input = (new PHPSQLParser())->parse("SELECT * FROM table")
+     * $crude = new crude;
+     * return $crude->list_fields($input);
+     * @endvise
+     */
+    function list_fields($sqlTree = []) {
+        $parse = fn($query) => (new PHPSQLParser())->parse($query);
+        $compile = fn($tree) => (new PHPSQLCreator())->create($tree);
+
+
+        if (is_string($sqlTree)) {
+            $sqlTree = (new PHPSQLParser())->parse($sqlTree);
+        }
+
+        if (!isset($sqlTree['SELECT'])) {
+            return [];
+        }
+
+        $result = [ /* name => column */];
+
+        $tables = [/* alias => table */];
+        foreach ($sqlTree['FROM'] as $table) {
+            $name = $table['alias']['name'] ?? $table['table'];
+            $table = $table['table'];
+            $tables[$name] = $table;
+        }
+
+        foreach ($sqlTree['SELECT'] as $field) {
+            $isWildcard = function ($field) {
+                $prt = $field['no_quotes']['parts'] ?? [];
+                return end( $prt ) === '*'
+                    || $field['base_expr'] === '*'
+                ;
+            };
+
+            if ($isWildcard($field)) {
+
+                $part = array_slice($field['no_quotes']['parts'] ?? [], 0, -1);
+
+                if (empty($part) || $field['base_expr'] === '*') {
+                    //throw new Exception('all tables');
+                    foreach ($tables as $tbl) {
+                        foreach ($this->getColumns($tbl) as $col) {
+                            $result[$col] = "`$tbl`.`$col`";
+                        }
+                    }
+                } else {
+                    $table_alias = array_pop($part);
+                    $table = $tables[$table_alias] ?? $table_alias;
+                    foreach ($this->getColumns($table) as $col) {
+                        $result[$col] = "`$table_alias`.`$col`";
+                    }
+                }
+                continue;
+            }
+
+            if (isset($field['alias']['name'])) {
+                $name = $field['alias']['name'];
+            } else if (isset($field['no_quotes']['parts'])) {
+                $name = end($field['no_quotes']['parts']);
+            }  else {
+                $name = null;
+                // throw new Exception('Could not get field name from ' . print_r($field, true));
+            }
+
+            $unaliased = amask($field, '*','-alias');
+
+            $fld = trim(substr($compile(['SELECT' => [$unaliased]]), strlen('SELECT ')),', ');
+            $name = $name ?: $fld;
+            $result[$name] = $fld;
+        }
+        return $result;
+    }
+
+    /**
+     * @vise 2
+     * // nummer 2
+     * @endvise
+     */
     function run_query($query, $options = []) { 
         // remove comments 
 
-        $tree = (new PHPSQLParser())->parse($query);
+        if (preg_match('~^EXPLAIN\s~i', $query)) {
+            return [
+                'data' => DB::fetchAll($query)
+            ]; 
+        }
+        $parse = fn($query) => (new PHPSQLParser())->parse($query);
+        $compile = fn($tree) => (new PHPSQLCreator())->create($tree);
 
-        // print_r($tree);
+        $tree = $parse($query);
+
         $query = preg_replace('~^--.+$~m', '', $query);
         if ($tree['SELECT'] ?? false) {
-
             /*
                [LIMIT] => Array
                 (
@@ -48,6 +138,8 @@ class crude {
                 'rowcount' => $length
             ];
 
+            $fieldMap = $this->list_fields($tree);
+
             if ($options['order'] ?? false) {
                 $tree['ORDER'] = [
                     [
@@ -58,16 +150,81 @@ class crude {
                 ];
             }
 
-            $query = (new PHPSQLCreator())->create($tree);
+            
 
+            if ($options['filters'] ?? false) {
+                $filters = array_filter($options['filters']);
+
+                
+                if (!empty($filters)) {
+                    $conditions = [];
+
+                    foreach ($filters as $x => $y) {
+                        if (!isset($fieldMap[$x])) {
+                            continue;
+                        }
+                        $fieldname = ($fieldMap[$x] ?? $x);
+                        // echo "Fieldname $x = " . $fieldMap[$x] . "\n";
+                        $operator = " = ";
+                        switch($y) {
+                            case 'empty':
+                            case 'null':
+                                $conditions[] = "($fieldname = '$y' OR $fieldname IS NULL)";
+                            break;
+                            case 'not empty';
+                            case 'not null':
+                                $conditions[] = "($fieldname = '$y' OR $fieldname IS NOT NULL)";
+                            break;
+                            default: 
+                                if (strpos($y, '%') !== false) {
+                                    $operator = 'LIKE';
+                                }
+                                $value = "'" . addslashes($y) . "'";
+                                $conditions[] = "$fieldname $operator $value";
+                        }
+                        
+                    }
+                    if (!empty($conditions)) { 
+                        $subQuery = "SELECT 1 WHERE " . join(' AND ', $conditions);
+                        $subTree = $parse($subQuery);
+                        if ($tree['WHERE'] && !empty($tree['WHERE'])) {
+                            $andOperator = [[
+                                "expr_type" => "operator",
+                                "base_expr" => "AND",
+                                "sub_tree" => false
+                            ]];
+                            $tree['WHERE'] = array_merge($tree['WHERE'], $andOperator, $subTree['WHERE']);
+                        } else {
+                            $tree["WHERE"] = $subTree["WHERE"];
+                        }
+
+                    }
+                }
+            }
+
+            // Perform some discovery
+            // $exampleTree = amask($tree, ['*', '-WHERE','-HAVING']);
+            // $exampleTree['LIMIT'] = ['offset' => 0, 'rowcount' => 1];
+            // $exampleQuery = (new PHPSQLCreator())->create($exampleTree);
+            // $example = DB::fetchOne($exampleQuery);
+
+            
+            $query = $compile($tree);
             $query = preg_replace('~select\s~i', 'SELECT SQL_CALC_FOUND_ROWS ', $query);
 
+            try {
+                $data = DB::fetchAll($query);
+            } catch (\Exception $e) {
+                throw new Exception("Query error in $query:\n" . $e->getMessage());
+            }
+            $rows = DB::fetchOne('SELECT FOUND_ROWS() as num_rows')['num_rows'];
             return [
-                'data' => DB::fetchAll($query),
+                'data' => $data,
+                'fields' => array_keys($fieldMap),
                 'query' => $query,
                 'orderable' => true,
                 'parsed_tree' => $tree,
-                'num_rows' => DB::fetchOne('SELECT FOUND_ROWS() as num_rows')['num_rows']
+                'num_rows' => $rows
             ];
         } else {
             $data = DB::fetchAll($query);
@@ -195,9 +352,13 @@ class crude {
 
 <template component="table-querier" props="table">
     <div v-ctrl-s="load" class="">
+        <div>
+            <b>Query</b>
+            <a href="javascript:;" @click="popupSchema()">Schema</a>
+        </div>
         <textarea class="form-control" v-model="query" @keyup.ctrl.enter="load"></textarea>
         <div v-if="result" class="data-container" >
-            <div v-if="result.num_rows" style="padding-top:8px;">
+            <div v-if="result.num_rows !== null" style="padding-top:8px;">
                 <b>Found rows:</b> {{result.num_rows}}
                 <div class="float-right">
                     <pagination @input="setPage($event)" :value="page" :rows="result.num_rows" :length="50"></pagination>
@@ -205,7 +366,14 @@ class crude {
                 <div style="clear:both;"></div>
             </div>
             <div style="height: calc(100vh - 280px); overflow: auto;">
-                <my-table :data="result.data" @order="setOrder":header-filters="true" >
+                <my-table 
+                    :fields="fields" 
+                    :data="result.data" 
+                    @order="setOrder" 
+                    :header-filters="true"
+                    :filters="filters"  
+                    @filter="setFilter($event)"  
+                >
                     <template #extra-headers="{headers}">
                         <pre>{{headers}}</pre>
                     </template>
@@ -223,45 +391,114 @@ class crude {
         }
     </style>
     <script>
-        export default {
-            data() {
-                return {
-                    columns: {},
-                    order: null,
-                    result: null,
-                    query: '',
-                    page: 0
+        'short';
+        return class {
+            columns = {};
+            order = null;
+            result = null;
+            query = '';
+            page = 0;
+            filters = {};
+            fields = null;
+
+            watch = {
+                query() {
+                    this.filters = {};
+                    this.page = 0;
                 }
-            },
+            };
             mounted() {
                 this.query = "SELECT * FROM " + this.table;
                 this.load();
-            },
-            methods: {
-                async setPage(page) {
-                    this.page = page;
+            }
+
+            async setPage(page) {
+                this.page = page;
+                this.load();
+            }
+
+            async load() {
+                this.result = await api.crude.run_query(this.query, {
+                    order: this.order,
+                    page: this.page,
+                    filters: this.filters
+                });
+            }
+
+            async setOrder(order) {
+                this.order = order;
+                this.page = 0;
+                if (this.result.orderable) {
                     this.load();
-                },
-                async load() {
-                    this.result = await api.crude.run_query(this.query, {
-                        order: this.order,
-                        page: this.page
-                    });
-                },
-                async setOrder(order) {
-                    this.order = order;
-                    this.page = 0;
-                    if (this.result.orderable) {
-                        this.load();
-                    }
                 }
             }
+
+            async setFilter(filters) {
+                this.filters = filters;
+                this.page = 0;
+                this.load();
+            }
+
+            async popupSchema() {
+
+                await dialog.dialog(`<div width=500 height=500 :title="title">
+                    <div v-if="modifications">
+                        <div v-if="modifications.length == 0">
+                            <em>No changes to execute</em>
+                            <div>
+                                <button type="button" @click="modifications = null">Back to schema</button>
+                            </div>
+                        </div>
+                        <div v-else v-ctrl-s="execute">
+                            <div class="list-group-item" v-for="m in modifications">{{m}}</div>
+                            <div>
+                                <button type="button" @click="execute()">Execute modifications</button>
+                                <button type="button" @click="modifications = null">Back to schema</button>
+                            </div>
+                        </div>
+                    </div>
+                    <textarea 
+                        v-else
+                        @keyup.ctrl.s.prevent.stop="save" 
+                        @keyup.ctrl.enter="save" 
+                        v-model="schema" 
+                        class="form-control" 
+                        style="height:calc(500px - 100px);">
+                    </textarea>
+                </div>`, {
+                    data: { 
+                        schema: null,
+                        title: 'Schema for ' + this.table,
+                        table: this.table,
+                        modifications: null
+                    },
+                    mounted() {
+                        this.load();
+                    },
+                    methods: {
+                        async load() {
+                            this.schema = await api.datamodel.get_simpleschema_for(this.table);
+                        },
+
+                        async save() {
+                            var result = await api.datamodel.simpleschema_dryrun(this.table, this.table + ":\n" + this.schema);
+                            this.modifications = result.modifications;
+                        },
+                        async execute() {
+                            await api.datamodel.execute_modifications(this.table, this.modifications);
+                            this.modifications = null;
+                            this.load();
+                        }
+                    }
+                });
+            }
         }
+
     </script>
 </template>
 
 <template url="/">
-    <div class="container-fluid" style="height:calc(100vh - 130px);overflow:auto;">
+    <div class="container-fluid" style="height:calc(100vh - 100px);overflow:auto;">
         <div class="row" >
             <div class="col-2" style="height:calc(100vh - 130px); overflow: auto;">
                 <table-selector v-model="selected_table" @select="openTable($event)"></table-selector>

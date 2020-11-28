@@ -71,6 +71,11 @@ class DB {
 
 
     // execute a query, fetch all results.
+    static function statement($query) {
+        $pdo = self::getPdoConnection();
+        return $pdo->exec($query);
+    }
+    // execute a query, fetch all results.
     static function fetchAll($query, $values = []) {
         $pdo = self::getPdoConnection();
         $stmt = $pdo->prepare($query);
@@ -94,6 +99,18 @@ class DB {
         $row = $stmt->fetch();
         $stmt->closeCursor();
         return $row;
+    }
+
+
+    // Fetch the first column of the first recor
+    static function fetchValue($query, $values = []) { 
+        return firstval(static::fetchOne($query, $values));
+    }
+
+    static function tables() {
+        foreach (static::fetchAll("SHOW TABLES") as $table) {
+            yield firstval($table);
+        }
     }
 }
 

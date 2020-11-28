@@ -1,4 +1,4 @@
-<template component="my-table" props="data, totals, headerFilters">
+<template component="my-table" props="data, fields, totals, filters">
     <style scoped>
         .filter-th {
             position: relative;
@@ -21,10 +21,13 @@
 			<tr>
 				<th v-for="h in headers" @click="setOrder(h)">{{h}}</th>
             </tr>
-            <tr v-if="headerFilters">
+            <tr v-if="filters">
                 <th v-for="h in headers" class="filter-th">
                     <div class="filter-container">
-                        <input @input="$emit('filter', { column: h, value: $event.target.value })">
+                        <input 
+                            :value="filters[h]" 
+                            @keyup.enter="obj=[]; obj[h]=$event.target.value; $emit('filter', {...filters, ...obj})"
+                        >
                     </div>
                 </th>
             </tr>
@@ -47,16 +50,15 @@
         </tfoot>
 	</table>
     <script>
-        export default {
-            data() {
-                return {
-                    grid_order: null,
-                    grid_reverse: null
-                }
-            },
-            computed: {
+        'short';
+        return class { 
+            grid_order = null;
+            grid_reverse = null;
+            filters = {};
+
+            computed = {
                 headers() {
-                    return (this.data && this.data[0] && Object.keys(this.data[0]) || []).filter(k => k.substr(0,1) !== '_')
+                    return this.fields || (this.data && this.data[0] && Object.keys(this.data[0]) || []).filter(k => k.substr(0,1) !== '_')
                 },
                 ordered_data() {
                     var data = (this.data && this.data || []);
@@ -74,20 +76,21 @@
                     })
                     return [];
                 }
-            },
-            methods: {
-                setOrder(key) {
-                    if (this.grid_order== key) {
-                        this.grid_reverse = !this.grid_reverse;
-                    } else {
-                        this.grid_reverse = false;
-                        this.grid_order = key;
-                    }
+            };
 
-                    this.$emit('order', [key, this.grid_reverse]);
+            setOrder(key) {
+                if (this.grid_order== key) {
+                    this.grid_reverse = !this.grid_reverse;
+                } else {
+                    this.grid_reverse = false;
+                    this.grid_order = key;
                 }
+
+                this.$emit('order', [key, this.grid_reverse]);
             }
-        };
+
+        }
+        
     </script>   
 </template>
 
@@ -138,5 +141,22 @@
             }
         }
     }
+    </script>
+</template>
+
+
+<template component="api-call" props="fn">
+    <pre>{{result}}</pre>
+    <script>
+        export default {
+            data() {
+                return {
+                    result: null
+                }
+            },
+            async mounted() {
+                this.result = await eval('api.' + this.fn)();
+            }
+        }
     </script>
 </template>

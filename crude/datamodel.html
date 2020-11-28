@@ -1,0 +1,111 @@
+<?php
+
+require_once __DIR__ . '/lib/SimpleSchema.php';
+
+class datamodel {
+    function show_create_table($table) {
+        return DB::fetchOne("SHOW CREATE TABLE `$table`")['Create Table'];
+    }
+
+    function parse_db_structure($table, $field = null) {
+        $create_db = $this->show_create_table($table);
+        $fields = array_slice(explode("\n", $create_db),1,-1);
+        $fields = array_map(fn($x) => trim($x, ', '), $fields);
+
+        if ($field) {
+            $match = firstval(preg_grep("~`$field`~", $fields));
+            list (, $fieldDef) = explode(' ', $match, 2);
+            return $fieldDef;
+        }
+        return $fields;
+    }
+
+    function get_simpleschema() {
+        $str = [];
+        $tables = DB::tables();
+
+        foreach ($tables as $table) {
+            $str[$table] = $table . ":\n";
+            $createSql = $this->show_create_table($table);
+            $def = new SimpleSchema\TableDefinition();
+            $def->setSql($createSql);
+
+            foreach ($def->getLines() as $line) {
+                $str[$table] .= "\t$line\n";
+            }
+            $str[$table] .= '';
+        }
+        return $str;
+    }
+
+    function get_simpleschema_for($table) {
+        $createSql = $this->show_create_table($table);
+        $def = new SimpleSchema\TableDefinition();
+        $def->setSql($createSql);
+        return join("\n", $def->getLines());
+    }
+
+    function simpleschema_dryrun($table, $schema) {
+
+
+        $def = new SimpleSchema\TableDefinition();
+        $def->setSql($this->show_create_table($table));
+
+        list(, $schema) = explode("\n", $schema, 2);
+
+        return [
+            'modifications' => $def->getSqlDiff($schema)
+        ];
+
+ 
+        return $this->get_simpleschema($table)[$table]; 
+    }
+
+    function execute_modifications($table, $modifications) {
+        foreach ($modifications as $m) {
+            DB::statement("ALTER TABLE `$table` $m");
+        }
+    }
+}
+
+?> 
+
+<template url="/datamodel" name="Datamodel">
+    <div>
+        <!-- <api-call fn="datamodel.get_simpleschema"></api-call> -->
+        <div v-for="(s, table) in simpleschema" style="margin-bottom: 25px; padding: 10px;">
+            <h3>{{table}}</h3>
+            <textarea v-tab @keyup.ctrl.enter="compare(table, $event.target.value)" class="form-control" v-autoheight :value="s"></textarea>
+        </div>
+        <!-- <pre>{{simpleschema}}</pre> -->
+    </div>
+    <script>
+        'short';
+
+        return class {
+            simpleschema = null;
+            results = {};
+
+            async mounted() {
+                this.simpleschema = await api.datamodel.get_simpleschema();
+            }
+
+            async compare(table, newSchema) {
+                var result = await api.datamodel.simpleschema_dryrun(table, newSchema);
+                try { 
+                    var doExecute = await dialog.dialog(`<div width=600 height=400 title="SQL Modifications">
+                        <div class="list-group-item" v-for="m in result.modifications">{{m}}</div>
+                        <button type="button" @click="$resolve()">Execute</button>
+                    </div>`, {
+                        data: { result } 
+                    });
+
+                    var result = api.datamodel.execute_modifications(table, result.modifications);
+
+                } catch (cancelled) {
+
+                }
+            }
+        }
+    </script>
+</template>
