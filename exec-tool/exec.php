@@ -19,6 +19,13 @@ class BaseExecutor
         $this->context['meta']['output'] = $output;
     }
 
+    /**
+     * Set outputter if none has been set.
+     */
+    function setDefaultOutputter($output) {
+        $this->context['meta']['output'] ??= $output;
+    }
+
     function getCodeStripped()
     {
         $code = $this->getCode();
@@ -60,8 +67,8 @@ class SqlExecutor extends BaseExecutor
 
 class PhpExecutor extends BaseExecutor
 {
-    function __invoke()
-    {
+
+    function runCode($code = null) { 
         $autoloader = findClosestFile('vendor/autoload.php');
 
         if ($autoloader) {
@@ -73,11 +80,7 @@ class PhpExecutor extends BaseExecutor
             require_once $bootstrap;
         }
 
-        if (preg_match('~^class ~', $this->getCodeStripped())) {
-            return (new PhpControllerExecutor($this->context))();
-        }
-
-        $code = $this->getCode();
+        $code = $code ?? $this->getCode();
         $lines = substr_count($code,"\n");
         $semicolons = substr_count($code,";");
         
@@ -89,8 +92,77 @@ class PhpExecutor extends BaseExecutor
                 $code = 'return ' . $code;
             }
         }
-        $data = eval($code);
+
+        $code = $this->processPrintStatements($code);
+
+        $code = 'return function () { ' . $code . PHP_EOL . ' };';
+        $fn = eval($code);
+        $data = $fn();
+
+        if (!is_array($data) && is_iterable($data)) {
+            $this->setDefaultOutputter('table');
+            $data = iterator_to_array($data);
+        }
         return $data;
+
+    }
+
+    function preg_extract($pattern, $subject) {
+        $matches = [];
+        $newContent = preg_replace_callback($pattern, function ($match) use (&$matches) {
+            if (!$matches) { 
+                $matches = $match;
+                return '';
+            } else {
+                return $match[0];
+            }
+        }, $subject);
+
+        return [$matches, $newContent];
+    }
+
+    function __invoke()
+    {
+        
+        if (preg_match('~^class ~', $this->getCodeStripped())) {
+            return (new PhpControllerExecutor($this->context))();
+        }
+
+        $code = $this->getCode();
+        list($blockMatch, $code) = $this->preg_extract('~@input(.+?)[^\n]*@endinput~s', $code);
+
+        if ($blockMatch) {
+            if ($this->context['interactions'] === null) {
+                echo '<form method="POST" action="/dev/null" style="white-space: initial;">' . $blockMatch[1] . '<div><input type="submit"></form>';
+            } else {
+                return $this->runCode($code);
+            }
+        } else {
+            return $this->runCode($code);
+        }
+
+    }
+
+    /**
+     * Adds newlines to print statements.
+     */
+    function processPrintStatements($code) {
+        $tokens = token_get_all('<?php ' . $code);
+        $buffer = '';
+        while(false !== ($tok = next($tokens))) {
+            if (is_array($tok) && $tok[0] == T_PRINT) {
+                $buffer .= 'print';
+                while(false !== ($tok = next($tokens))) {
+                    if ($tok === ';') {
+                        $buffer .= ' . "\n";';
+                        break;
+                    }
+                    $buffer .= is_array($tok) ? $tok[1] : $tok;
+                }
+            }
+            $buffer .= is_array($tok) ? $tok[1] : $tok;
+        }
+        return $buffer;
     }
 }
 
@@ -234,7 +306,6 @@ class exec
 
         $executor = $this->getExecutor($context);
 
-        $command = null;
         if ($doExecute) {
 
             if ($interactions) {

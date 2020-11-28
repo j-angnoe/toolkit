@@ -153,10 +153,25 @@
             line: true,
             ...(options || {})
         }"
-        x-ref="codeMirror"
+        ref="codeMirror"
         @focus="$emit('focus',$event)"
     ></codemirror>
     <script>
-        export default {}
+        'short';
+        return class {
+            focus() {
+                this.$refs.codeMirror.codemirror.focus()
+            } 
+
+            getSelectionStart() {
+                return this.$refs.codeMirror.codemirror.getCursor();
+            }
+
+            setSelection(selectionObj) {
+                // with line and ch
+                this.focus();
+                return this.$refs.codeMirror.codemirror.setSelection(selectionObj);
+            }
+        }
     </script>
 </template>

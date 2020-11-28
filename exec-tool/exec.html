@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/exec.php';
 ?>
-<template url="/exec">
+<template url="/">
     <div v-ctrl-s="exec" class="container-fluid">
         <h1>Execute a script</h1>
         <p>Tip: Do ctrl-s or ctrl-enter to run the code. Add @output html to control output, or @id [id] to save.</p>
@@ -25,7 +25,6 @@ require_once __DIR__ . '/exec.php';
         <div v-if="error">{{error}}</div>
 
         <div v-if="result" style="max-height:90vh; overflow: auto;">
-
             <result-renderer :exec="subExec" @interact="handleInteractions" :value="result"></result-renderer>
         </div>
     </div>
@@ -68,9 +67,11 @@ require_once __DIR__ . '/exec.php';
                     try {
                         this.result = await this.subExec(params);
 
-                        if (this.result.code) {
-                            this.code = this.result.code;
-                        }
+                        var sel = this.$refs.code.getSelectionStart();
+
+                        // dont updhate the code, 
+                        // it will clear your undo history of the editor
+
                     } catch (err) {
                         this.error = err
                     }
@@ -78,83 +79,66 @@ require_once __DIR__ . '/exec.php';
                     this.loading = false;
                 },
                 async handleInteractions(event) {
+                    console.log(this.result);
+
                     if (event && event.link) {
                         this.exec({
+                            'POST': this.result.interactions && this.result.interactions.POST || '',
                             'GET': event.link.href
                         });
                     } else if (event && event.submit) {
                         var data = new URLSearchParams(new FormData(event.submit.target)).toString();
 
                         this.exec({
-                            'POST': data
+                            'POST': data,
+                            'GET': this.result.interactions && this.result.interactions.GET || ''
                         });
                     }
                 },
                 async openScript() {
+                    try { 
+                        var scripts = await api.exec.listScripts();
 
-                    var file = await dialog.dialog(`<div width=300 height=400 centered=true>
-            <ui-suggest call="exec.searchScript" @select="$resolve($event)"></ui-suggest>
-            </div>`);
-
-                    this.code = await api.exec.openScript(file);
-                    this.focus();
+                        var file = await dialog.dialog(`<div width=300 height=400 centered=true>
+                <ui-suggest call="exec.searchScript" @select="$resolve($event)"></ui-suggest>
+                </div>`);
+                        
+                        this.code = await api.exec.openScript(file);
+                    } catch(e) {
+                        this.focus();
+                    }
                 },
                 focus() {
+                    console.log(this.$refs.code);
                     this.$refs.code.focus();
-                }
-            },
-
-            directives: {
-                tab: {
-                    bind(el) {
-                        el.addEventListener('keydown', function(e) {
-                            var newEvent = new Event('input', {
-                                bubbles: true,
-                                cancelable: true,
-                            });
-
-                            if (e.key == 'Tab') {
-                                e.preventDefault();
-                                var start = this.selectionStart;
-                                var end = this.selectionEnd;
-
-                                if (e.shiftKey) {
-                                    if (this.value.substr(start - 1, 1) === "\t") {
-                                        this.value = this.value.substr(0, start - 1) + this.value.substr(end);
-                                    }
-                                    this.dispatchEvent(newEvent);
-                                    this.selectionStart = start - 1;
-                                    this.selectionEnd = start - 1;
-                                    return;
-                                }
-                                // set textarea value to: text before caret + tab + text after caret
-                                this.value = this.value.substring(0, start) +
-                                    "\t" + this.value.substring(end);
-
-                                // put caret at right position again
-                                this.selectionStart =
-                                    this.selectionEnd = start + 1;
-
-                                this.dispatchEvent(newEvent);
-
-                            }
-                        });
-                    }
                 }
             }
         }
     </script>
 </template>
 
+<template component="exec-output-default" props="value,exec">
+    <pre>{{value}}</pre>
+</template>
+
 <template component="result-renderer" props="value, exec">
     <div>
-        <div v-if="value && value.meta && value.meta.output">
+        <a @click="mode = 'default'">Default</a>
+        <a v-if="value.meta && value.meta.output" @click="mode = value.meta.output">{{value.meta.output}}</a>
+        <div v-if="value && value.meta && value.content">
+            <output-html style="white-space: pre;" v-on="$listeners" :value="value.content"></output-html>
+        </div>
+        <div 
+            :is="'exec-output-' + outputComponent"
+            v-on="$listeners" 
+            :value="value" 
+            :exec="exec"
+        >
+            
+        <!-- 
 
-            <!-- dit is voor duo modus (output table en html) -->
-            <div v-if="value && value.meta && value.meta.html">
-                <exec-output-html v-on="$listeners" :value="value"></exec-output-html>
-            </div>
-            <div v-if="componentExists('exec-output-' + value.meta.output)" :is="'exec-output-' + value.meta.output" v-on="$listeners" :value="value" :exec="exec">
+        <div v-if="value && value.meta && value.meta.output">
+            <!-- dit is voor duo modus (output table en html) -- >
             </div>
             <div v-else>
                 Unknown output type `{{value.meta.output}}`
@@ -174,43 +158,49 @@ require_once __DIR__ . '/exec.php';
                 <pre>{{value}}</pre>
             </div>
 
-            <!-- mode default -->
+            <!-- mode default -- >
             <div v-else>
                 <div v-if="value.content > ''">
-                    <exec-output-html v-on="$listeners" :value="value"></exec-output-html>
-                    <pre v-else>{{value.content}}</pre>
+                    <span ><exec-output-html v-on="$listeners" :value="value"></exec-output-html>
+                    </span>
                 </div>
                 <pre v-if="value.data > ''">{{value.data}}</pre>
             </div>
-
+            -->
         </div>
     </div>
     <script>
-        export default {
-            data() {
-                return {
-                    mode: 'default'
-                }
-            },
-            computed: {
+        'short';
+        return class {
+            mode = null;
+            computed = {
                 isArray() {
                     return Array.isArray(this.value.data);
-                }
-            },
-            mounted() {
-                this.link('mode').to.sessionStorage('lastExecMode')
-            },
-            methods: {
-                componentExists(component) {
-                    return Vue.options.components[component] || false;
                 },
+                outputComponent() {
+                    if (this.mode) {
+                        return this.mode
+                    } else if (this.value.meta.output) {
+                        return this.value.meta.output
+                    }
+                    return 'json';
+                }
+            }
+            mounted() {
+                // this.link('mode').to.sessionStorage('lastExecMode')
+            }
+            componentExists() {
+                return Vue.options.components[component] || false;
             }
         }
     </script>
 </template>
 
+<template component="output-html" props="value">
+<disarmed-html @interact="$listeners['interact']" :content="value"></disarmed-html>
+</template>
 <template component="exec-output-html" props="value">
-    <disarmed-html @interact="$listeners['interact']" :content="value.content"></disarmed-html>
+    <output-html v-on="$listeners" :value="value.data"></output-html>
 </template>
 
 <template component="disarmed-html">
@@ -234,66 +224,72 @@ require_once __DIR__ . '/exec.php';
     -->
     <div ref="injectedHtmlContainer" v-html="content"></div>
     <script>
-        export default {
-            props: ['content'],
+        'short';
+        return class {
+            props = ['content'];
 
-            watch: {
+            watch = {
                 'content'() {
                     setTimeout(this.disarmInjectedHtml, 333);
                 }
-            },
+            };
+
             mounted() {
                 setTimeout(this.disarmInjectedHtml, 333);
-            },
-            methods: {
-                /**
-                 * Disarm injected html
-                 * Make sure links and forms are contained within the cell.
-                 * Ideally, some old-skool flux functionality is introduced here.
-                 */
-                disarmInjectedHtml() {
-                    console.log(this.$refs);
+            }
 
-                    var container = this.$refs.injectedHtmlContainer;
-                    if (!(container && container.querySelector)) {
-                        // nothing to do.
-                        return;
-                    }
-                    console.log(container);
+            /**
+             * Disarm injected html
+             * Make sure links and forms are contained within the cell.
+             * Ideally, some old-skool flux functionality is introduced here.
+             */
+            disarmInjectedHtml() {
+                console.log(this.$refs);
 
-                    [].forEach.call(container.querySelectorAll('a'), link => {
-                        link.addEventListener('click', event => {
-                            var href = event.target.getAttribute('href');
-
-                            if (href.match(/(^\/|:\/\/)/)) {
-                                event.target.setAttribute('target', '_blank');
-                                event.target.setAttribute('rel', 'noopener noreferrer');
-
-                                // proceed()
-                                return;
-                            }
-
-                            // Special behavior, let this return to the cell.
-                            this.$emit('interact', {
-                                link: {
-                                    href: href
-                                }
-                            });
-
-                            event.preventDefault();
-                        })
-                    });
-                    [].forEach.call(container.querySelectorAll('form'), form => {
-                        form.addEventListener('submit', event => {
-                            this.$emit('interact', {
-                                submit: {
-                                    target: event.target
-                                }
-                            });
-                            event.preventDefault();
-                        })
-                    });
+                var container = this.$refs.injectedHtmlContainer;
+                if (!(container && container.querySelector)) {
+                    // nothing to do.
+                    return;
                 }
+                console.log(container);
+
+                [].forEach.call(container.querySelectorAll('a'), link => {
+                    link.addEventListener('click', event => {
+                        var href = event.target.getAttribute('href');
+
+                        if (href.match(/(^\/|:\/\/)/)) {
+                            event.target.setAttribute('target', '_blank');
+                            event.target.setAttribute('rel', 'noopener noreferrer');
+
+                            // proceed()
+                            return;
+                        }
+
+                        // Special behavior, let this return to the cell.
+                        this.$emit('interact', {
+                            link: {
+                                href: href
+                            }
+                        });
+
+                        event.preventDefault();
+                    })
+                });
+                [].forEach.call(container.querySelectorAll('form'), form => {
+                    var handler = event => {
+                        if (event) { 
+                            event.preventDefault();
+                            event.stopPropagation();
+                        }
+                        this.$emit('interact', {
+                            submit: {
+                                target: form
+                            }
+                        });
+                    };
+                    form.addEventListener('submit', handler)
+
+                });
             }
         }
     </script>
@@ -301,27 +297,6 @@ require_once __DIR__ . '/exec.php';
 
 <template component="exec-output-table" props="value,exec">
     <div>
-        <!-- <table class="exec-output-table">
-            <thead>
-                <tr>
-                    <th v-for="key in headers">
-                        {{key}}
-                    </th>
-                </tr>
-            </thead>
-            <template v-for="row in value.data">
-                <tr>
-                    <td v-for="key in headers" @click="cellClick(row, key)" :style="row.style">
-                        {{row[key]}}
-                    </td>
-                </tr>
-                <tr v-if="drilldown.row === row">
-                    <td :colspan="headers.length" class="drilldown-container">
-                        <result-renderer v-if="drilldown.result" @interact="handleInteractions" :value="drilldown.result" :exec="exec"></result-renderer>
-                    </td>
-                </tr>
-            </template>
-        </table> -->
         <my-table :data="value.data"></my-table>
     </div>
     <style scoped>
@@ -338,62 +313,58 @@ require_once __DIR__ . '/exec.php';
         }
     </style>
     <script>
-        export default {
-            data() {
-                return {
-                    drilldown: {
-                        url: null,
-                        row: null,
-                        result: null
-                    }
-                }
-            },
-            computed: {
+        'short';
+        return class {
+            drilldown = {
+                url: null,
+                row: null,
+                result: null
+            }
+            computed = {
                 headers() {
                     var specialKeys = ['style', 'drilldown', 'drilldownUrl'];
                     return Object.keys(this.value.data[0]).filter(k => {
                         return k.substr(0, 2) !== '__' && !~specialKeys.indexOf(k);
                     });
                 }
-            },
-            methods: {
-                async cellClick(row, column) {
+            }
 
-                    if (row.drilldownUrl) {
-                        this.drilldown.row = row;
-                        this.drilldown.result = null;
-                        this.drilldown.url = row.drilldownUrl;
+            async handleInteractions(event) {
+                if (event && event.link) {
+                    this.drilldown.result = null;
+                    this.drilldown.url = event.link.href;
 
-                        this.drilldown.result = await this.exec({
-                            'GET': this.drilldown.url,
-                            'POST': this.drilldown.row
-                        });
+                    this.drilldown.result = await this.exec({
+                        'GET': this.drilldown.url,
+                        'POST': this.drilldown.row
+                    });
 
-                        this.drilldown.result = result;
-                    }
-                },
-                async handleInteractions(event) {
-                    if (event && event.link) {
-                        this.drilldown.result = null;
-                        this.drilldown.url = event.link.href;
+                } else if (event && event.submit) {
+                    var data = new URLSearchParams(new FormData(event.submit.target)).toString();
+                    data += '&' + new URLSearchParams(this.drilldown.row);
 
-                        this.drilldown.result = await this.exec({
-                            'GET': this.drilldown.url,
-                            'POST': this.drilldown.row
-                        });
+                    this.drilldown.result = null;
+                    this.drilldown.result = await this.exec({
+                        'GET': this.drilldown.url,
+                        'POST': data
+                    });
+                }
+            }
+            
+            async cellClick(row, column) {
 
-                    } else if (event && event.submit) {
-                        var data = new URLSearchParams(new FormData(event.submit.target)).toString();
-                        data += '&' + new URLSearchParams(this.drilldown.row);
+                if (row.drilldownUrl) {
+                    this.drilldown.row = row;
+                    this.drilldown.result = null;
+                    this.drilldown.url = row.drilldownUrl;
 
-                        this.drilldown.result = null;
-                        this.drilldown.result = await this.exec({
-                            'GET': this.drilldown.url,
-                            'POST': data
-                        });
-                    }
-                },
+                    this.drilldown.result = await this.exec({
+                        'GET': this.drilldown.url,
+                        'POST': this.drilldown.row
+                    });
 
+                    this.drilldown.result = result;
+                }
             }
         }
     </script>
