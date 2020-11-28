@@ -397,9 +397,12 @@ class exec
         return $annotations;
     }
 
+    public function listScripts() {
+        return array_map('basename', glob($_ENV['DEVTOOLS_EXEC_PATH'] . '/**', GLOB_ONLYDIR));
+    }
     public function searchScript($term)
     {
-        $list = array_map('basename', glob($_ENV['DEVTOOLS_EXEC_PATH'] . '/**', GLOB_ONLYDIR));
+        $list = $this->listScripts();
 
         return preg_grep('~' . $term . '~', $list);
     }

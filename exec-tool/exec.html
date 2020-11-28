@@ -100,8 +100,14 @@ require_once __DIR__ . '/exec.php';
                         var scripts = await api.exec.listScripts();
 
                         var file = await dialog.dialog(`<div width=300 height=400 centered=true>
-                <ui-suggest call="exec.searchScript" @select="$resolve($event)"></ui-suggest>
-                </div>`);
+                        <filtered :data="scripts" @select="$resolve($event)">
+                            <template #item="{item}">
+                                <div class="list-group-item" @click="$resolve(item)">{{item}}</div>
+                            </template>
+                        </filtered>
+                </div>`, {
+                            data: { scripts } 
+                        });
                         
                         this.code = await api.exec.openScript(file);
                     } catch(e) {
