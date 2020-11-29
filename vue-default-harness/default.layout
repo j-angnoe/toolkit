@@ -4,7 +4,7 @@
         <title><?= $title ?? '' ?></title>
         <style>
         html, body {
-            background: #d6f5f5 !important;
+            background: <?= adjustBrightness(stringToColor($title),0.7) ?> !important;
             padding: 15px;
             font-family: Sans;
         }
