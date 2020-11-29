@@ -1,0 +1,114 @@
+
+<template component="file-result-node" props="value, prefix">
+    <div>
+        <div v-for="(content, name) in value">
+            <div class="handle" v-if="!isString(content)" @click="toggle(name)">
+                <slot v-bind="{ name, file: fullName(name), type: 'folder', toggle() { toggle(name) } }">
+                    <i class="fa fa-folder"></i> {{name}}
+                </slot>
+            </div>
+            <div class="handle" v-if="isString(content)" @click="$emit('select', content)">
+                <slot v-bind="{ name, file: fullName(name), type: 'file', toggle: function() {} }">
+                    <i class="fa fa-file-o"></i> {{name}}
+                </slot>
+            </div>
+            <div style="padding-left:25px;" v-if="~toggled.indexOf(name)">
+                <file-result-node v-if="!isString(content)" :value="content" :prefix="fullName(name)" v-on="$listeners">
+                    <template v-for="(_, slot) of $scopedSlots" v-slot:[slot]="scope"> <slot :name="slot" v-bind="scope"/></template>
+                </file-result-node>
+            </div>
+        </div>
+    </div>
+    <script>
+        'short';
+
+        return class {
+            toggled = [];
+
+            toggle(file) {
+                var index = this.toggled.indexOf(file);
+                if (~index) {
+                    this.toggled.splice(index, 1);
+                } else {
+                    this.toggled.push(file);
+                }
+            }
+
+            fullName(file) {
+                return this.prefix ? this.prefix + '/' + file : file;
+            }
+            isString(n) {
+                return typeof n == 'string';
+            }
+        }
+    </script>
+</template>
+<template component="show-file-results" props="value">
+    <div>
+        <file-result-node :value="tree" v-on="$listeners">
+            <template v-for="(_, slot) of $scopedSlots" v-slot:[slot]="scope"> <slot :name="slot" v-bind="scope"/></template>
+        </file-result-node>
+    </div>
+    <script>
+        export default {
+            data() {
+                return {
+                    tree: []
+                }
+            },
+            watch: {
+                value() {
+                    this.parse();
+                }
+            },
+            mounted() {
+                this.parse();
+            },
+            methods: {
+                parse() {
+                    console.log('parsing');
+                    var tr = {};
+
+                    (this.value||[]).map(f => {
+                        var c = tr;
+                        f.split(/\//).filter(Boolean).map(piece => {
+                            c[piece] = c[piece] || {};
+                            c = c[piece];
+                        });
+                    });
+
+                    var walk = function(n, prefix, built) {
+                        built = built || ['/'];
+                        prefix = prefix ? prefix + '/' : '';
+                        var keys = Object.keys(n);
+
+                        if (keys.length == 1) {
+                            var sk = Object.keys(n[keys[0]]);
+                            if (sk.length == 0) {
+                                var obj = {};
+                                obj[prefix + keys[0]] = [...built, keys[0]].join('/').replace(/\/\//, '/');
+                                return obj;
+                            }
+                            return walk(n[keys[0]], prefix + keys[0], [...built, keys[0]]);
+                        } else {
+                            var obj = {};
+                            keys.map(k => {
+                                var sk = Object.keys(n[k]);
+                                if (k === '.' || k === '..') {
+                                    obj = {...obj, ...walk(n[k], k, [...built]) };
+                                } else if (sk.length == 0) {
+                                    obj[prefix + k] = [...built, k].join('/').replace(/\/\//, '/');
+                                } else {
+                                    obj[prefix + k] = walk(n[k], null, [...built, k]);
+                                }
+                            })
+                            return obj;
+                        }
+                    }
+
+                    this.tree = walk(tr);
+                }
+            }
+        }
+    </script>
+</template>

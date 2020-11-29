@@ -1,0 +1,9 @@
+{
+  "name": "pharao",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "bin": {
+    "pharao": "./bin/pharao"
+  }
+}

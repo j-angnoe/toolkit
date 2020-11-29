@@ -1,0 +1,207 @@
+<?php
+
+class pharao {
+    function info() {
+        $package = findClosestFile('package.json', getcwd());
+
+        if ($package) {
+            $data = read_json($package);
+        }
+
+        return [
+            'package_json' => $package,
+            'package_data' => $data
+        ];
+    }
+
+    function save_settings($data) {
+        $info = $this->info();
+
+        if ($info['package_json']) {
+            $info['package_data']['pharao'] = $info['package_data']['pharao'] ?? [];
+            if (isset($data['files'])) { 
+                $info['package_data']['pharao']['files'] = $data['files'];
+            }
+            if (isset($data['output'])) {
+                $info['package_data']['pharao']['output'] = $data['output'];
+            }
+            if (isset($data['entrypoint'])) {
+                $info['package_data']['pharao']['entrypoint'] = $data['entrypoint'];
+            }
+            write_json($info['package_json'], $info['package_data']);
+            return true;
+        } else {
+            throw new Exception('There was no package json found');
+        }
+    }
+
+    function list_files($patterns = null) {
+        $project = new PharaoBuild(getcwd());
+        return $project->list_files($patterns);
+    }
+
+    function build_phar() {
+        $project = new PharaoBuild(getcwd());
+        return $project->build_phar();
+    }
+}
+?>
+
+<template component="edit-on-dblclick" props="value">
+    <div v-if="!editing" @dblclick="editing = true">
+        <slot>
+            {{value}}
+        </slot>
+    </div>
+    <div v-else-if="editing">
+        <input :value="value" @keyup.esc="editing = false" @keyup.enter="var v = $event.target.value; $emit('input', v); editing = false" class="form-control">
+    </div>
+    <script>
+        'short';
+        return class {
+            editing = false;
+        }
+    </script>
+</template>
+<template url="/">
+    <div>
+        
+        <div class="container" v-ctrl-s="save">
+            <h2>Pharao: Create PHAR Archives for project</h2>
+
+            File: {{info.package_json}}
+            <hr>
+
+            Included files and folders:
+            <div v-for="(s, index) in selection" class="list-group-item">
+                <edit-on-dblclick v-model="selection[index]"></edit-on-dblclick>
+            </div>
+            <div>
+                <input 
+                    class="form-control"
+                    placeholder="Add more files (enter a glob pattern)"
+                    @keyup.enter="var v = $event.target.value; v && selection.push(v); $event.target.value = '';">
+            </div>
+            <a href="javascript:;" @click="viewFiles">View files</a>
+
+
+            <br><br>
+            
+            <b>Entrypoint:</b>
+            <input v-model="entrypoint">
+
+            <br><br>
+            
+            <b>Output to:</b>
+            <input v-model="output">
+
+            <br><br>
+            <br><br>
+            <input type="button" class="btn btn-primary" @click="buildPhar()" value="Build PHAR">
+            
+            <br><br>
+            <br><br>
+
+
+        </div>
+
+    </div>
+    <script>
+        'short';
+        return class {
+            info = null;
+            selection = [];
+            output = [];
+            entrypoint = null;
+
+            async mounted() {
+                this.info = await api.pharao.info();
+                this.selection = this.info.package_data?.pharao?.files;
+                this.output = this.info.package_data?.pharao?.output;
+                this.entrypoint = this.info.package_data?.pharao?.entrypoint;
+            }
+
+            async viewFiles() {
+                var files = await api.pharao.list_files(this.selection);
+
+                await dialog.dialog(`<div width=600 height=800 title="View files">
+                    <div class="list-group-item" v-for="f in files">{{f}}</div>
+                </div>`, {
+                    data: { files }
+                })
+            }
+
+            async save() {
+                await this.api.pharao.save_settings({
+                    files: this.selection,
+                    output: this.output,
+                    entrypoint: this.entrypoint
+                });
+
+                toast('Saved settings to ' + this.package_json,'success');
+            }
+
+            async buildPhar() {
+                await this.save();
+                var result = await api.pharao.build_phar();
+                dialog.dialog('<pre width=500 height=500 title="Build results">{{result}}</pre>', { data: { result }});
+            }
+        }
+    </script>
+</template>
+
+<template component="manage-files" props="value">
+    <div>
+
+    </div>
+</template>
+<template url="/spielerij">
+    <div>
+        <h1>Pharao: Create PHAR archives</h1>
+        <pre>{{info}}</pre>
+        <button type="button" @click="run()">Run</button>
+        <pre v-if="result">{{result}}</pre>
+        <show-file-results :value="files">
+            <template v-slot="{name, file, type, toggle}">
+                <span v-if="parentIsSelected(file)">
+                    <input type="checkbox" checked disabled>
+                </span>
+                <input v-else @click.stop type="checkbox" v-model="selectedFiles" :value="file">
+                <span v-if="type == 'folder'" @click.stop="toggle()">
+                    <i class="fa fa-folder"></i> {{ name }} 
+                </span>
+                <span v-else-if="type == 'file'">
+                    <i class="fa fa-file-o"></i> {{ name }} 
+                </span>
+            </template>
+        </show-file-results>
+
+        <pre>{{selectedFiles}}</pre>
+    </div>
+    <script>
+        'short';
+        return class {
+            extra_folders = [];
+
+            info = null;
+
+            files = null;
+            result = null;
+            selectedFiles = [];
+
+            async mounted() {
+                this.info = await api.pharao.info();
+
+                this.files = await api.pharao.listFiles(this.extra_folders);
+            }
+
+            parentIsSelected(file) {
+                return !!this.selectedFiles.find(f => file !== f && file.indexOf(f) === 0);
+            }
+
+            async run() {
+                this.result = await api.pharao.createPhar(this.selectedFiles);
+            }
+        }
+    </script>
+</template>

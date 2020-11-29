@@ -1,0 +1,63 @@
+#!/usr/bin/env php
+<?php
+
+switch($argv[1]) {
+    case 'list':
+        require_once __DIR__ . '/../includes.php';
+
+        $path = realpath(getcwd() . '/' . ($argv[2] ?? ''));
+
+        $project = new PharaoBuild($path);
+
+        echo "\n";
+        echo "Working in " . getcwd() ."\n";
+        echo "Included files:\n";
+        foreach ($project->list_files() as $file) {
+            echo "\t$file\n";
+        }
+        echo "\n";
+    break;
+    case 'watch':
+        require_once __DIR__ . '/../includes.php';
+
+        $path = realpath(getcwd() . '/' . ($argv[2] ?? ''));
+        $project = new PharaoBuild($path);
+
+        $lastChecksum = null;
+
+        while(true) {
+            // also reread the projects package.json
+            $currentChecksum = '';
+            $project->read();
+            $files = $project->list_files();
+            foreach ($files as $f) {
+                $currentChecksum .= sha1_file($f);
+            }
+            $currentChecksum = sha1($currentChecksum);
+            if ($currentChecksum !== $lastChecksum) {
+                echo "\n";
+                $lastChecksum = $currentChecksum;
+                system("php " . __FILE__ . " build");
+            } else {
+                echo ".";
+            }
+
+            sleep(5);
+        }
+    break;
+    case 'build':
+        require_once __DIR__ . '/../includes.php';
+
+        $path = realpath(getcwd() . '/' . ($argv[2] ?? ''));
+    
+        $project = new PharaoBuild($path);
+
+        echo "\n";
+        echo "Working in " . getcwd() ."\n";
+
+        $project->build_phar();
+    break;
+    case 'gui':
+    default:
+    system("harness " .(getcwd() . '/' . $argv[1]) . " --tool=" . dirname(__DIR__) . ' ' . join(' ',array_slice($argv, 2)));
+}

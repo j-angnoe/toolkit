@@ -7,7 +7,8 @@
         "harness": "./bin/harness"
     },
     "scripts": {
-      "build:phar" : "pharao build"
+        "build:phar": "pharao build",
+        "watch:phar" : "pharao watch"
     },
     "pharao": {
         "files": [
