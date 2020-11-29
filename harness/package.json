@@ -1,6 +1,6 @@
 {
     "name": "harness",
-    "version": "1.0.0",
+    "version": "0.1.1",
     "main": "index.js",
     "license": "MIT",
     "bin": {
@@ -8,7 +8,7 @@
     },
     "scripts": {
         "build:phar": "pharao build",
-        "watch:phar" : "pharao watch"
+        "watch:phar": "pharao watch"
     },
     "pharao": {
         "files": [
@@ -16,7 +16,7 @@
             "vendor/.*\\.php$ -tests/ -test/ -examples/",
             "package.json"
         ],
-        "output": "build/harnass.phar",
+        "output": "build/harness.phar",
         "entrypoint": "src/main.php"
     }
 }

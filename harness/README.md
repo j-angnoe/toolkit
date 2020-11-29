@@ -37,6 +37,19 @@ class controller {
 ?>
 ```
 
+## Installation
+
+```sh
+# Get the harness executable
+wget https://github.com/j-angnoe/toolkit/raw/master/harness/build/harness.phar
+
+# Make it executable
+chmod +x harness.phar
+
+# Create a symlink ins /usr/local/bin so you can access it anywhere from the commandline
+sudo ln -sf harness.phar /usr/local/bin/harness 
+```
+
 ## Usage 
 
 

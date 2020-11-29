@@ -212,8 +212,26 @@ function _start_dockerized($path, $opts) {
 
     system($command);
 }
+function versionBanner() {
+    $pkg = read_json(__DIR__ . '/../package.json');
+    echo "Harness v" . $pkg['version'] . "\n";
+}
 if ($argv[1]) {
     switch ($argv[1]) {
+        case 'version':
+            versionBanner();
+        break;
+        case 'update';
+            if ($pharFile = \Phar::running(false)) {
+                echo "Found harness.phar";
+                $pharDir = dirname($pharFile);
+                system("cd $pharDir; wget https://github.com/j-angnoe/toolkit/raw/master/harness/build/harness.phar");
+                echo ("Pulled a fresh harness from github.\n");
+                system("harness version");
+            } else {
+                echo "Not in phar mode.";
+            }
+        break;
         case '-?':
         case '--help':
         case 'help':
