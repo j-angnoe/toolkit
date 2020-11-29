@@ -12,7 +12,7 @@ Quickly execute code inside the project, but this time via an external tool inst
 ### [Vise](./vise)
 Clamp down on your code and enjoy the tighest feedback loop you could imagine.
 
-### [Pharao] (./pharao)
+### [Pharao](./pharao)
 Command line tool and gui for building (and controlling) php `phar` archives.
 
 ## Stuff for making tools
