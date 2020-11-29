@@ -321,3 +321,25 @@ if (!function_exists('findClosestFile')) {
         return false;
     }
 }
+
+
+if (!function_exists('command')) { 
+    /**
+     * Command: Run a shell command and return lines as an array.
+     */
+    function command($command) {
+        return array_filter(explode("\n", trim(shell_exec($command))));
+    }
+}
+
+if (!function_exists('read_json')) { 
+    function read_json($file, $asObjects = false) {
+        return json_decode(file_get_contents($file), $asObjects ? 0 : 1);
+    }
+}
+
+if (!function_exists('write_json')) { 
+    function write_json($file, $data) {
+        return file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT + JSON_UNESCAPED_SLASHES));
+    }
+}
