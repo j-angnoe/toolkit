@@ -1,0 +1,407 @@
+#!/usr/bin/php 
+<?php
+
+$web = 'src/main.php';
+
+if (in_array('phar', stream_get_wrappers()) && class_exists('Phar', 0)) {
+    Phar::interceptFileFuncs();
+    set_include_path('phar://' . __FILE__ . PATH_SEPARATOR . get_include_path());
+    Phar::webPhar(null, $web);
+    include 'phar://' . __FILE__ . '/' . Extract_Phar::START;
+    return;
+}
+
+if (@(isset($_SERVER['REQUEST_URI']) && isset($_SERVER['REQUEST_METHOD']) && ($_SERVER['REQUEST_METHOD'] == 'GET' || $_SERVER['REQUEST_METHOD'] == 'POST'))) {
+    Extract_Phar::go(true);
+    $mimes = array(
+        'phps' => 2,
+        'c' => 'text/plain',
+        'cc' => 'text/plain',
+        'cpp' => 'text/plain',
+        'c++' => 'text/plain',
+        'dtd' => 'text/plain',
+        'h' => 'text/plain',
+        'log' => 'text/plain',
+        'rng' => 'text/plain',
+        'txt' => 'text/plain',
+        'xsd' => 'text/plain',
+        'php' => 1,
+        'inc' => 1,
+        'avi' => 'video/avi',
+        'bmp' => 'image/bmp',
+        'css' => 'text/css',
+        'gif' => 'image/gif',
+        'htm' => 'text/html',
+        'html' => 'text/html',
+        'htmls' => 'text/html',
+        'ico' => 'image/x-ico',
+        'jpe' => 'image/jpeg',
+        'jpg' => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'js' => 'application/x-javascript',
+        'midi' => 'audio/midi',
+        'mid' => 'audio/midi',
+        'mod' => 'audio/mod',
+        'mov' => 'movie/quicktime',
+        'mp3' => 'audio/mp3',
+        'mpg' => 'video/mpeg',
+        'mpeg' => 'video/mpeg',
+        'pdf' => 'application/pdf',
+        'png' => 'image/png',
+        'swf' => 'application/shockwave-flash',
+        'tif' => 'image/tiff',
+        'tiff' => 'image/tiff',
+        'wav' => 'audio/wav',
+        'xbm' => 'image/xbm',
+        'xml' => 'text/xml',
+    );
+    
+    header("Cache-Control: no-cache, must-revalidate");
+    header("Pragma: no-cache");
+    
+    $basename = basename(__FILE__);
+    if (!strpos($_SERVER['REQUEST_URI'], $basename)) {
+        chdir(Extract_Phar::$temp);
+        include $web;
+        return;
+    }
+    $pt = substr($_SERVER['REQUEST_URI'], strpos($_SERVER['REQUEST_URI'], $basename) + strlen($basename));
+    if (!$pt || $pt == '/') {
+        $pt = $web;
+        header('HTTP/1.1 301 Moved Permanently');
+        header('Location: ' . $_SERVER['REQUEST_URI'] . '/' . $pt);
+        exit;
+    }
+    $a = realpath(Extract_Phar::$temp . DIRECTORY_SEPARATOR . $pt);
+    if (!$a || strlen(dirname($a)) < strlen(Extract_Phar::$temp)) {
+        header('HTTP/1.0 404 Not Found');
+        echo "<html>\n <head>\n  <title>File Not Found<title>\n </head>\n <body>\n  <h1>404 - File Not Found</h1>\n </body>\n</html>";
+        exit;
+    }
+    $b = pathinfo($a);
+    if (!isset($b['extension'])) {
+        header('Content-Type: text/plain');
+        header('Content-Length: ' . filesize($a));
+        readfile($a);
+        exit;
+    }
+    if (isset($mimes[$b['extension']])) {
+        if ($mimes[$b['extension']] === 1) {
+            include $a;
+            exit;
+        }
+        if ($mimes[$b['extension']] === 2) {
+            highlight_file($a);
+            exit;
+        }
+        header('Content-Type: ' .$mimes[$b['extension']]);
+        header('Content-Length: ' . filesize($a));
+        readfile($a);
+        exit;
+    }
+}
+
+class Extract_Phar
+{
+    static $temp;
+    static $origdir;
+    const GZ = 0x1000;
+    const BZ2 = 0x2000;
+    const MASK = 0x3000;
+    const START = 'src/main.php';
+    const LEN = 6649;
+    
+    static function go($return = false)
+    {
+        $fp = fopen(__FILE__, 'rb');
+        fseek($fp, self::LEN);
+        $L = unpack('V', $a = fread($fp, 4));
+        $m = '';
+        
+        do {
+            $read = 8192;
+            if ($L[1] - strlen($m) < 8192) {
+                $read = $L[1] - strlen($m);
+            }
+            $last = fread($fp, $read);
+            $m .= $last;
+        } while (strlen($last) && strlen($m) < $L[1]);
+        
+        if (strlen($m) < $L[1]) {
+            die('ERROR: manifest length read was "' .
+            strlen($m) .'" should be "' .
+            $L[1] . '"');
+        }
+        
+        $info = self::_unpack($m);
+        $f = $info['c'];
+        
+        if ($f & self::GZ) {
+            if (!function_exists('gzinflate')) {
+                die('Error: zlib extension is not enabled -' .
+                ' gzinflate() function needed for zlib-compressed .phars');
+            }
+        }
+        
+        if ($f & self::BZ2) {
+            if (!function_exists('bzdecompress')) {
+                die('Error: bzip2 extension is not enabled -' .
+                ' bzdecompress() function needed for bz2-compressed .phars');
+            }
+        }
+        
+        $temp = self::tmpdir();
+        
+        if (!$temp || !is_writable($temp)) {
+            $sessionpath = session_save_path();
+            if (strpos ($sessionpath, ";") !== false)
+            $sessionpath = substr ($sessionpath, strpos ($sessionpath, ";")+1);
+            if (!file_exists($sessionpath) || !is_dir($sessionpath)) {
+                die('Could not locate temporary directory to extract phar');
+            }
+            $temp = $sessionpath;
+        }
+        
+        $temp .= '/pharextract/'.basename(__FILE__, '.phar');
+        self::$temp = $temp;
+        self::$origdir = getcwd();
+        @mkdir($temp, 0777, true);
+        $temp = realpath($temp);
+        
+        if (!file_exists($temp . DIRECTORY_SEPARATOR . md5_file(__FILE__))) {
+            self::_removeTmpFiles($temp, getcwd());
+            @mkdir($temp, 0777, true);
+            @file_put_contents($temp . '/' . md5_file(__FILE__), '');
+            
+            foreach ($info['m'] as $path => $file) {
+                $a = !file_exists(dirname($temp . '/' . $path));
+                @mkdir(dirname($temp . '/' . $path), 0777, true);
+                clearstatcache();
+                
+                if ($path[strlen($path) - 1] == '/') {
+                    @mkdir($temp . '/' . $path, 0777);
+                } else {
+                    file_put_contents($temp . '/' . $path, self::extractFile($path, $file, $fp));
+                    @chmod($temp . '/' . $path, 0666);
+                }
+            }
+        }
+        
+        chdir($temp);
+        
+        if (!$return) {
+            include self::START;
+        }
+    }
+    
+    static function tmpdir()
+    {
+        if (strpos(PHP_OS, 'WIN') !== false) {
+            if ($var = getenv('TMP') ? getenv('TMP') : getenv('TEMP')) {
+                return $var;
+            }
+            if (is_dir('/temp') || mkdir('/temp')) {
+                return realpath('/temp');
+            }
+            return false;
+        }
+        if ($var = getenv('TMPDIR')) {
+            return $var;
+        }
+        return realpath('/tmp');
+    }
+    
+    static function _unpack($m)
+    {
+        $info = unpack('V', substr($m, 0, 4));
+        $l = unpack('V', substr($m, 10, 4));
+        $m = substr($m, 14 + $l[1]);
+        $s = unpack('V', substr($m, 0, 4));
+        $o = 0;
+        $start = 4 + $s[1];
+        $ret['c'] = 0;
+        
+        for ($i = 0; $i < $info[1]; $i++) {
+            $len = unpack('V', substr($m, $start, 4));
+            $start += 4;
+            $savepath = substr($m, $start, $len[1]);
+            $start += $len[1];
+            $ret['m'][$savepath] = array_values(unpack('Va/Vb/Vc/Vd/Ve/Vf', substr($m, $start, 24)));
+            $ret['m'][$savepath][3] = sprintf('%u', $ret['m'][$savepath][3]
+            & 0xffffffff);
+            $ret['m'][$savepath][7] = $o;
+            $o += $ret['m'][$savepath][2];
+            $start += 24 + $ret['m'][$savepath][5];
+            $ret['c'] |= $ret['m'][$savepath][4] & self::MASK;
+        }
+        return $ret;
+    }
+    
+    static function extractFile($path, $entry, $fp)
+    {
+        $data = '';
+        $c = $entry[2];
+        
+        while ($c) {
+            if ($c < 8192) {
+                $data .= @fread($fp, $c);
+                $c = 0;
+            } else {
+                $c -= 8192;
+                $data .= @fread($fp, 8192);
+            }
+        }
+        
+        if ($entry[4] & self::GZ) {
+            $data = gzinflate($data);
+        } elseif ($entry[4] & self::BZ2) {
+            $data = bzdecompress($data);
+        }
+        
+        if (strlen($data) != $entry[0]) {
+            die("Invalid internal .phar file (size error " . strlen($data) . " != " .
+            $stat[7] . ")");
+        }
+        
+        if ($entry[3] != sprintf("%u", crc32($data) & 0xffffffff)) {
+            die("Invalid internal .phar file (checksum error)");
+        }
+        
+        return $data;
+    }
+    
+    static function _removeTmpFiles($temp, $origdir)
+    {
+        chdir($temp);
+        
+        foreach (glob('*') as $f) {
+            if (file_exists($f)) {
+                is_dir($f) ? @rmdir($f) : @unlink($f);
+                if (file_exists($f) && is_dir($f)) {
+                    self::_removeTmpFiles($f, getcwd());
+                }
+            }
+        }
+        
+        @rmdir($temp);
+        clearstatcache();
+        chdir($origdir);
+    }
+}
+
+Extract_Phar::go();
+__HALT_COMPILER(); ?>
+�                   src/main.php�/  <��_D
+  V�۴         src/router.php�  <��_�  3��         src/HarnessServer.php   <��_W  ���ݴ         src/Harness.php�  <��_6  =�S��         src/includes.php  <��_�  |�=��      #   vendor/composer/autoload_static.php?  <��_[  �xk��         vendor/composer/ClassLoader.php�4  <��_�  �z���      !   vendor/composer/autoload_real.php�  <��_C  Wh��      %   vendor/composer/autoload_classmap.php�   <��_u   ��b�      !   vendor/composer/autoload_psr4.php�   <��_�   �{M��      '   vendor/composer/autoload_namespaces.php�   <��_u   t�!״         vendor/autoload.php�   <��_�   >Qb��      /   vendor/samejack/php-argv/src/PHP/ArgvParser.php�  <��_`  �'��      +   vendor/samejack/php-argv/example/loader.php�   <��_t   U�;�      ,   vendor/samejack/php-argv/example/example.php�   <��_�   ���2�         package.json�  <��_�   Ȣ�g�      ��r�6��_��������쓼J�k��wS�c;��(&!�1E� %������F$(��>�2�H���_��}��2�$E�#��e�(�VAӧ��eB��F~_%��4�0<;�C4D�(ɢt�b�< ��٪��5!Z�l�����%f��.c\�
+A}@i�=L�1C��22�R x �GEq�y���pr}1���t���Y�����i���O���� ���d��2���0�0��,%�o���c<����K��gd�Wi�A��
+���� �*�ݐ�L����$%h����4�)J���XP(8��f�H�9�]�4! ��C�ǽY�ފ���+���̼�R6����8-�����(1+�
+�/[�� ?P����C�����]��̥���7 ��^%E�T ��
+����b[!z%�����M���w��q��H�|H�$��mC������@�]>}�{�r����Ť�%��dS(a��'R���c���?�\�f�
+    By�?��Tt�a�h��Z�s0uH���,�����!0���Q�b7��ݸ�3�h���B�t�@���(�[�کE ��<0C!��}i2)���ݙv67��s£���̓ػ�6J�PVr�qH��)���V,�ޢ,��h���Z�c����T<%Y��9d�9}HFߍP��'т�N���[e�'�\�7~�:�Ȩn�m�8�{�Ark&-u��q{���5��R��S��g:zw�2�Y�}}tt4x��j��B��hp�
+    )��SVƠ9��)Ax�� A��y�
+    �B�K���B�D#�`����yAP?BWhwPn9�I��J�l��v�3@E_x9��l�?���^Q�W�`2 "p���!.�g�V�� F��2�,�&#���*jğ
+    KJ"Ӈ�#}@������N_�W��Я�B�q��6I
+    %� �dOb4B�\9)���%Ѣ���q�|)�z�7�y����C�E��(X��
+    a�%�R�C��
+    P��dk��馕{�}Tm����'�>ކ����퇉��.�
+    �}X�	<=˯9ʅ���/�.�l(��'�0����C�)��@��c$����?��:��h�*��i�\_�4�4�d
+    �]:Ej�k�[���2�SK0�K������k��L;*�4=;����k$��LǭeGj�m +r��E(;P�A�ľ����}��n�Z"�:�����'����ڸ�Z���N�Q�@�
+    �TWR6��tuz��Ԩ��y�g�+JqU������mUM��T[�Ͳ	h��~:6�j��<K� ��<���+�=��9?��g����^O^��m�^^��t~q�Q�H!Qe�Ø�`����^���"���֥�*�g�L���x����-E|z��<%�g�쒦��^
+    n,�س'g���+�jk�joz#�3��2�l;|6��R�����DD�y� �j�����P0��-����+_#�IQ�6�`��I4�������i�3A�M(�%ԷUm�����t��f�z�i�Ӎ�y����o�H_�μ��T�<׺��R�@�P�aF����<�1��1�׍��X�T]E�@!�#�Dd�/[LS2��b�1,ٙpk:�lN /1�@�zb��
+    XM����з �����_ώ-Bv�@�y�l�iM��l�JW��Aw-fI�H�O�|7�$���_�����
+    4� �?uj��9�����̷���̗������j�0㡠Y+�)��W��4�y7�@#�OI�n�����f����?�ח�8���w�D7C��zA �D�0��3�Ah��.z���׫���N|��.Zf��7z�A����:�Y'C_H�ߕ�f�W��k҈�##4-�� �lPD��k���.���t#�V+����-7����@�EՌ�Ĺ���I���7@M�]-��4�9\k��SJn({�mg0{G%eϠ#H?!Ly)��ߡ���[����r���V��N@TM�σ�i�M<2O"�kwY�pњ�L���3���vM*���18�87������nI�ީ�L�U�*Qݣ����D��~���w��!Es�P��]l�3H
+        �*Ɛ�%�y��.�Vw�Ep�]K��ۓ�ۺA�hz9�jv�9v<���`�c�銴����Q����k�6��b=��3������8Z�7Ǻ�].1�;���nL�>;�M�4�my�T5�7����X� �`1��YC���R���+�?g��Rc�^��� �=�g����b���/n<��3�����G���y�q�!��s�.��n8]OO�~���ytЏ�
+        �����CIWѢ:)��y*:6o���I��eGX�gX�N��KN����gb�nR	�g�Ѧ�[�$�ėWU�A�OX�?��A��O̪YD�M��K����!V�<�i#F�́"���Pe�N�f��ݨu�
+        G�P{�up�4��]�/q��j���Bwa�N�����uB{&�x�[�Z6 ��Y
+            �и���3AG�V7��;�3�j��U�K�͢��HG_v:m�ڸ�-,���3��WI�"v��^4³e�DOV%]�$B�p�9|�b�#p�=Ì+&5�W�e�	/Ck�c����YK蝊p1�z����+��!�� �L���s��j_���AF�Œy���8���"����Փ���1�H
+            �x(�P�F/�N�C� �8�/E���w^��b�(TR���,��}Ђ
+            )������yQ�y�]M����UW��#��L��9K�2dBm���IZ�=��4FFr��P���!uw�$YR6B�v�7Η �k*H[Jլ���(��#�/"j��aȃ��o%9i21�m�;ǌ��z<'��ZG 鷁$�v|�v3V<gxM�QFqP��D��׵fk����-�o�x�K8ݻfO�"W�C;�cވ[$F�.�\U���⎑����4yh4/�'�iˈ��m�3�MZ����`�D�v����Y;�����jσ~f�e����k���
+            <Λ�׉���H�Y�h���>*�)��i��+*#�l�Т��N׆%)��w����%�R�i�8� ���U����:����VD�Q�ZiR��N�v�E���3��
+            ����t��խȷ���v�qU����컇���;4�ǝ���/���ẮTįz">Ǩ&Y�ƍ�7M~۪�mrP,�V��ʉL�8C���i�;t�/ty�-�;+��')��)d<E�%\����SaAf�0�^p'C�p�(��
+            �`�B����J���K�}���;:mV��VH2>�î����Exu=����;��E?�g�.�7�'Wӳ����͇��~O�Y�l�?A�eEkj�3�G��	��o��>����o��v��i���+֮�[�ۃ�eR�n�0���
+            ɰɽ�ɡEJ��f���Dr`�bm���V���P����{o�x�]�u��A����Z�1i���Ė��ih��	���U�yQ��\Ȳ�*43��,�V�h�)
+                �M��d��:�~=g�m�#ۮ��{G��&!��#��V'T��X܁�WXy_V3{zٱ�z��y`{X.�T�VQ����?�6}.$-l@%��9�+.���.Z'��RdH�֥C��k���]	{kT֮,�]
+                    ��`OX*I({��{_K=�5x��8�s��C�AE��:�|9���L5�QhC0k����FVT���	������jӫ�F^�MN�:D�� �b�B��e���^%	tF�����v�I�`�Dڏ��妢F���O����,��o����mÅd���f�[����؟�;��@��48 �Xmo�6��_�F����l�'
+                        ��]Rl���ŀ����I�FR����}wz�EI���$"��x|�ǜ_&˄���Nh�Ȓ*���R��x��p)F�^Q��U>}�Ԋ)�G��S ��~ �6*
+                        �[ I_>>��Xl}����m>A.J�(l{�L��X)���#��[�d	:yۄ��\f���k������CȐ�s1��0a�� _g��E��x@N�M�ED��dH?ff)C��j���˃�����z����d,�4|����p\���}Q���y���K�VU���,�\��{���~G"�!s���HE��� $}F2���zV�ek�S�
+                        ��[�j��WL�'�Q�k*��S����&dV�^Q�����쵳���<6Ʌ�'.���8�D��p)�g��Er��"'�Ir��!�$�*�)?�m�L�
+                        S�1bnA�1y�2�u�G9ڠNyW2�0Y�s�
+                        ��\M�}Ua�y���*[�������'��r��L��4Z�8�'$�RC�z.
+                        !L2��=1�	;#4I"P\�a�;��Zf��D����E�yqA���B����
+                        �T�t�BʜB~	������0���^@zB���Dqa|��4 �c��"���ٳ��\�!՛`ig��P�����������y|?�O�n?83ryI���S��uvk/�3���:uR3�����������HB�f~�"����k"|r5��_�ɻ�U�R����}�i�W���et9�i�4ش���9!: �@��@����"H��pk�x_b� 1��l����!�}m)[W���;��7�ߐ�]^w��9vj�J�8�l��yD��nXsP�+��\��%��}��?p���3�i�$�?�<
+                        =�`&��ƌr�i�q�>��y��lN!��jfR�B��N�8�Y�+b�#���d5Ey�a�U!l�![��=`(l�#:@���ٷ���J�թ&�1Y ��b.s D+D����[��t|s}{S�(�	g!�+�5{$	p9+9�Ǚ�ל�0�e�!o�{"�F:yID�p�nD�tB^�ꂄ&�,� �\tA�脘��lt���x9��s����E�xȤ���1.x�1]0�u������`��Uحsl��E-��; ��YUes�5�Sª�.��E7�uc
+                            u�u��䉮�OL�0MC.����tB�
+                            �n������Wʃ?
+                            z��hI�n��:X��B�c�0&	�M�p���ح!��E�^���5]��9�{�Fl�����X6����z�?Ɩ{B����`cyx%s�^'�w�L����l�8i������^��ϭʲ��n�p�v=�/��Ȅ��CQ�36���I�p��f�"x��6J�Mg�y�h{Wb�򹸩��{~~�|z����������a���6�+_%7������ 6q���Z74n<1���u ��"�k��%����@���j�����n�%��:î)���K=ėsS���X�v�%�?���_�aP�Y+	kV�t��R a+�+�⋪��jj�,�w��*�V�W�=l�����u�/�/V�o�c�vU�͑�3h�*3_R6L�4�J��{��Gk���?��ߍW[O�8~�_q�FJ�Lyؗβ��@b)j龴�kI��Y�ᢪ�}�q2�s /���~�Ιߏ�������<�q����Ii��Q�\��d�Hn-�U��s�<pӂ�l�~�����Vkg��ŉVN(\�*�e*����!|�A-t�.UBJ��D+d.{5�Z/=S��v�:F�ڊ�6_C�Υ`�)���!����/��V�h�r�a
+                                ��/(��2�|E̲������|A(�ېw
+                                ϭ�1[]��5:;�t�����_�\|9]�������l֓�)��y�(�9�	9MŚ��m����u������5�|�}�
+                                ��cZ';.����Y,�|
+                                5�~]��[���]� �Lރ�ˤ�}.�o�����[V����	����p�a2G�1��*<�
+                                I}h/;=��̣�|���v��A�71z�Uo?\����GP���x�b�tu�o�{ʿ}�D�2��
+                                X�R�󝠞{EJ7�?�R�,_�x`�H���6����٠S~���N�[Nթ��s�[�)1K$��	��w63�֘�$���E����t#G��X�s��_}_{�{��S�}��O	;1��N�z���+?�e��w�1~���������zu7[Qw���W�2�pN��p�W#\iԋ�6jM��I��ҷ�:n\�.^�.B��,x��<�㌍�m�en6�A��@��@�Mp��T
+                                �s�$�����y� E}���y�[
+                                    �
+                                    �gz̥$ �"
+                                    Ik-SaF�k�X�#T9��;j�� 
+                                    eE��]c��^qK��=�q43s�(uʂ�V�
+                                    H� $�Qt"D��{�������)h����b����.�* �ʼ��4�ϋ�
+                                        ��QM��ְ�)��g�i��C>��R
+                                        Oi����mM�[�6�~��ܸ��M#�H����V�T ��q_t���f�l�D��0Iu��ٴ�����8��Aw|��l٪pj���~8�v
+                                        �]�~#��k�8D���a���-���V�gOi?������xl�v���~L��翾�!��D��Ky�I���4� ��S�Fؾ��܉�?u��4�
+                                        �aغ����>8<�h��E��v�4���*�����
+                                        �
+                                        �Ǡk�����A�ZM��~�2F�3Dn��qg�U�h����7]A�����Wϟ3#�ru�����+v����d��<�H]�,�����x��Y^�|A#�QV�G������������jq0?��޿�sE�+�h�y@��6��K"�4�I;]*̨��!.F�C��wX�x���ｽ�^�J�7�����E��"�"?Th��!��q�׺~M��Uao�6����aTR�Z�� u� H=�Ðq��X��(K�Lj$e�X��wGJ�d�H2���������+O�5�K8�L	��̫5��K�+SH1�<����c)pU�z�0?�N�
+                                        �T��,%K�H�#$�EBh���<fj�	�x��	D]�!��^�R>�hj3�#�uiT!V��I"����C_^S��b]	�����0�a��H�o�AczO,y~X�,���A؛�V��~���}-EV�tЋ	q{/:?������sZ� &�S<��.6���y���� ۢ,AHPrL o�E����'F�N��)�C9��
+                                            �39��%��2E�wT�3d
+                                            
+                                            SLݺ�Μ5�Rd3�l�y�K�v⒠�1$r�f"
+                                            �͋�nx��dEi����*eʃуS�t��2�/<9���H@q��OZ�`�L����.d������idiq������)F;�p@s	�����V��Sfؑ���c����N����xq7���������ƍ}��/���/����|�Ԁ��UP�,�Y!��Rj��o(��n:�Z'�u˺B��X�t)	�3��Ie
+                                            �8�E��
+                                            
+                                            +@K�39`�N
+                                            ���3[�)��gӏ�wQ�$�8bUe��2��[�u��M[�_!��
+                                            (��.���4�%®�X��>[��&�!Sr
+                                            �Ua&�W���+�UN���ڑ�.��l������Z��3�c1�]���4�u(4��%����`ݩD���N�ib�E#�۩�6���}���q|x�Nf��W�&H��r�����O����P+tG툳�;�Gv��>���Q,.u���'��$��_E���C$��E�N`�a�{�
+                                                F�� ����m/�����:�|~o�����߲%W�u��_�R�n�0��+�P)�	"J(�\�8T�5R�8Npk��v�RĿ7Dt��\ƞ��Ӽ����9B����p*�5#v���
+                                                *��1D[�g�<ST"$����Ƃ�C�!±Rm橆[
+                                                    �=oxM���M�v�x�%��KƱG��E;��E���\�&�mEE���A�!LK��`��ʀ����|SS�~��%��q�M[��*��%�`�����i���0\,�l0�6jq��w�L_%��K�I!�f����j�s�N�9��X��P	W��Vݾkq%Յ�y�
+                                                    I}?b"6[@ӂBQ0��'�����O2��|��ޓKOd�Ǵ#�a���; 
+                                                    �;p�B߯O�j��} �[Yo�H~ׯ�#iV�4���q�##^x�v2Xā�"[�T�`������V���[�g�e	����:�:��7�*�tF�vȯ�f�BF���&)��4ZǑ`�Fࠞ�'�P��ϒ5圼�T}|k>}�����(��G�\�G�տ�s���`�?�ˡ8�,JH�bd��!��1	���P�0� _D0AD|@�Qxw����8?�~��"+�D��)�PA�@�I0�R�M���PPDY�1��g�ۨ��t�DL�Q�v��QQ�m$�<
+                                                    �jJ�5Ȱf<������@�w$��p���	%�1#>�9!T�mLz[���?.Q�F$aKP�%w&�f�
+                                                    �6��k������z�G5ɻ2��;��͆ݑ�����遪x
+                                                    �E�o��[��zipOS&E�~,iLb�j��F�q:�
+                                                    Fo��p/�|p�{l9$�r9�\�+�.��7f,�$ع"��^�d,��+����`A����#ʑ�vj��
+                                                        �"�N ��h
+                                                         * |�'��^�>q���D�EJ����V5x�d$"`Ew� �(�2�c�w�z�L� a^%��� U|` '�s0�(��8sT��%x$�[D0	�3���ep��bo�J�������!^}0E�f��Y"hXB�a�4^�fgt���Qʸ�j���[��A��e�ݲ�/��J����h��!.��0J��X$��p<�c��Hf�|I��:�2E�/q��� N�"x�`|��ĥH� )�$��2�#߁�3޴
+                                                        ,�1�qgH2ޕ���;�U���`5v�RB�t�gL�o���=s0[B OuRt����]J]������au!K�^j[��r�r>���:N{�(_���⓰4K8��j30H2�IfJ���o�fɒAR��;Ι=u:5��Z5A 4�Ѭ*SԴ1>+!��q4���A�:��؟jL��5Ы��� >��M�k��%wL�؈` �h��U$���H5n6��īC���	��:�4U	l�At��=�ZHY�n�+]۱Y�
+                                                            ��Pf����X�(�H�
+                                                            � ��^A��q̸�����M�-(v_�Q&���L�8BsjV5'b�|��j(�J�4����4�����J�$�Ҳj5�y��]��C]Q�
+                                                            �j�q��w`̦d�uƴ�3MU�Ě���V��"h�5��Q0�1�c�cK��Ǌ���Aj���[����W���i�@u|'�_�_��~���R[Y��h�~Ѥ_uj"����q��e�\H�q�>j��.sT�v̅�%�.<��lAW��i�ș��u�Kf��3��$�Z�'4��{{��+U�uɏK�9�t�DAn��=
+                                                                �,3�<�>x,��ݖ�e���
+                                                                ��2���]U�i8�����K�N�:H_�4Tw�x3�;�os5�P?�rU
+                                                                �� ���5IQ2=��IQ��!���
+                                                                #2"��+(z?O���\o�x��`�A-D��@K.�a䂆ß�-y����R��J2����4a��M����:�>��&����V �>l��Jk��^E����۩�G��uYd�!���Q�H"�I/� �o�S,5�^�d>��}ʘ���z�tt�D����M׳�����%�����e�"P��}?x������*������� �!��;q�
+                                                                ���mV���v�T��P+������O����<����V̻C(��2��n��f�M,�л�h��X6�}u75�G��K5���*?��'N��a%W���y�Rj�mЧ��lM�Ȱ@���FԳ�r��u�ag���*�B??������0O���L/K�+�a�<"��[`�
+                                                                ��4�\�f�`�N=<�D�F�ߡ�O�c`=��%�>Z���o�%�N�� 0�G�JTWp���� V����l�Ro��_~�d@��Ӥ�`�(�������_�L�f�'��&7��?^L'��MY�;A��	�*@F�~���R��&�`��#J��Ԯ.ٳ-ɔl�7�=�.E&;$s�N��k�<�n�-�?�\�&�-��ڶpD��YN�������d����:C�3�w��O�4�]���6��^��),����:d���=	`�p���fW%N	ky*-�*`Kp*�o��ui
+                                                                ��/�M �ׁ\1���gy��Iވ�?�7��q$����}���@{u�)��^A��@�6� +UI���[��.Fvd	~�Aa�82wTT�h��j��ڦ�a���5S��(^�]5{�2Ý� ����o�"C�FC�$�;�y%p�£�4�"�ɢ��4C%
+                                                                    �U�Z�9�e5cl�S8w;+g^���Z����=#J��t����ͤ��c�(�(�@<�8������ϊ��N�fR(�:z]<�<��>����<N�O�ժk�걟���1��]:i8�il�G^��\^0�&;-�z��
+                                                                     �-�-9;��L�tը�\̭}���v@�gIj�\Ka�<�bEo@�J��_���w�W�ӛ�W��]O/'W��'C9�q���V7�l-���5�:l�Kds�������Y!��7%t`Lz	�KGP�4�Oc��,�I�	r�� gZE����1��4�:�Pl(VM�sa��������^�k� ��͢>x��[�"�L�*u�hE��>�@���j8�4�;���'�/ͷ�7�$�Jy�]lu�M��Lsئ�v_֝h�֞E�܆�u����SJ��|��,��E5����KQ�@*F[���Pw���ĝ9RW��ޫ>�;��B���<ϛ�8�C��D����I`����k�;a�J0�E�)����"�Y�@��)&��P��ߕA��� ��A��zn)ｊa��]`h)�� .Fװ�Qx�f��,�;�mB�nvR�%�S�)�Ök/��/������M|�!���xSw[�6#�BX�%��P��V;,Њ��ƪU߇7��b?u����o�0���WR�$+Pʺ��6��@j7�J}B�Lr�H��l�[����I�(�����=|w����Ul��DE,�>H٩^��K�(�BOp��H�0�Q)��/�Ŕ�j08���]�����^�w��^g� ���b�3~�G,�G���*�����|3Y0�X�	�TqHm�ңo2c��8�L�{MG�m�l�n^Z�.�2$�@ �zzG��թIӰX�J�1���U����'�AK�Hd�pX��o*��kS��>e�H-��P*}0�>m�r\¬6X��[N�H0��-� �������b��ԯ��7��3��L$�gٻ)�g�y�zw?���L�a� ��ۅ�h��}ۚLnK+�I��V�~��4���g�>�aI2$Ƚ�G_^^��ڶ��L�&�v���g^�E%�h=���5�Ʒ��X�	�'�á~ �aHY���ڢ�k�� 2����k��{��U8]������0�D��y+���`V������Z5����KT�V�.��l���c)��w�]�����sgv�m{V�������ߟ��)��{P+U3(zOeQ4ɝ��16�U�M
+                                                                        �@F�9E.tSPK��@�;��	Vp&Cf,x{g#����^w��ж�k�E��{�<�S1�O�8��qÛ��I��Jpj����n��^�D��� j�3T#'������$���x��,;U��
+                                                                            �@��y��mA�oZ��G(,ij��.ٶзw5�@���l����Fz�rTd��+�,�s��G�yX #��ɩ̱n�R�ɼ��\ogc�t���c�ߨ�p?�E�)��B�T=�Ba��H?�*=3:�\�4�R�t	��
+                                                                            U�K
+                                                                            �@�}�^d�l�T������Ѐ�z&Bn�q��U�f����Y�bO� Q'�7�Ue��#µ ����dNԼ��qt�r����9_�'��[S3hƿ�k+'G�=����R}�=̱�0��Oq7u�l0Q���/Д�I��k|{Š��w��~�
+                                                                                �qz���&�-z$�B�S����c�U�A�s}U
+                                                                                Xp3��(B�O�E5��H��9���]�r�5in����(�u�R']a�iQ�-�˗/W{�UM��0��W�AB=.�vQ�T��zXU
+                                                                                    Yd��5Nd;,�.����AB�~���7�ތ'�~L�T�(�a�"�O[��X-�,���9,X�_"�1�~j ��P.�~�}�����M�S	����X�0���l�����j�KC;y���+,�!����{�4]��"c�����q��+~��p	�՞f�d�qB!��}X���iF��(��|��1_��
+                                                                                    l
+                                                                                    H�R�^����$OX����y�=&�eT������
+                                                                                    I�A�`�['E:���
+                                                                                    e�2Z�� ����R��<��
+                                                                                    َ{<	���AL��Aʞ����S������`�K�-pL����ZI�
+                                                                                        �n�:��-���~���G�}�V�gN���λ����Ɂ��8�e��
+                                                                                        4����T��Lć���VQݙ�I��e��d�Жk�����
+                                                                                        T��c�j���c{���rz��ls���vEN��(�7�y�ޚ��΃	3O]����%��VY=�c��J�������J��4�<��&M�^'�ʲ�,kTx����&�h�F�.gI0���Pk��J5�|��mϝ�M��Vz�?����of�\�c�'���Ƈ��˫���v�~��/�(���K�)MI���KNՈ�w���W�SP����/.J���w,J/H,*N-�jQ״��RI��)�*䥖+�'�f%&g� �� �h��e��i iӵ+ ���yi����@e M��
+                                                                                            �0E�~���CR���Vt+΅ӘVm�+~�QD�
+                                                                                            ���X��F��W_)��bη��������dZ�t����c!�<�F�����DѪ���2 ���u�]ct�ZC6��q����KA-X�8T@i��^�lŝb�P�z�=	$=w��:]�Wn:sj4Ɵ�$�>e��!E{��+���`ag��;*��a�����5� g��s$�Hgj�K!�&:@��� ��.Gj��=��eh]	wu��-�!gZ�6==���}�)MQ���:ц�_VyhlU.ɥ s~/��z��oգ� g��-�u:���G�&��
+                                                                                            �0��P�7]p7u�t�`��9��6����M
+                                                                                            Mʳs�<�AT<՗\���cm�2o=�Ӎ:z���ɸ�8�BX�vw/��)�   GBMB

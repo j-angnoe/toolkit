@@ -20,9 +20,13 @@ if (!$result) {
 
     // Render the first .layout file it finds in object->includePaths
     foreach ($object->glob('*.layout') as $layout) {
+        echo '<!-- using layout ' . $layout . '-->';
         include $layout;    
-        break;
-    }
+        return;
+    } 
+    header('Content-type: text/plain');
+    echo $content;
+    
 } else {
     return true;
 }

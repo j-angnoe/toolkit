@@ -1,12 +1,21 @@
 {
-  "name": "harness",
-  "version": "1.0.0",
-  "main": "index.js",
-  "license": "MIT",
-  "bin": {
-    "harness": "./bin/harness"
-  },
-  "harness" : {
-    "default-harness" : "../vue-default-harness"
-  }
+    "name": "harness",
+    "version": "1.0.0",
+    "main": "index.js",
+    "license": "MIT",
+    "bin": {
+        "harness": "./bin/harness"
+    },
+    "scripts": {
+      "build:phar" : "pharao build"
+    },
+    "pharao": {
+        "files": [
+            "src/",
+            "vendor/.*\\.php$ -tests/ -test/ -examples/",
+            "package.json"
+        ],
+        "output": "build/harnass.phar",
+        "entrypoint": "src/main.php"
+    }
 }

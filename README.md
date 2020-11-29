@@ -62,7 +62,7 @@ An example of a simple single-page tool, a calculator:
 </template>
 ```
 
-![](docs/images/2020-11-29-00-40-32.png)
+![](harness/docs/images/2020-11-29-00-40-32.png)
 
 To run it:
 `harness sample-calculator`

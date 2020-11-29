@@ -7,7 +7,6 @@
         }
     ],
     "require": {
-        "samejack/php-argv": "^1.0",
-        "ralouphie/mimey": "^2.1"
+        "samejack/php-argv": "^1.0"
     }
 }

@@ -8,9 +8,22 @@ require_once __DIR__ . '/includes.php';
 define('HARNESS_DIR', dirname(__DIR__));
 define("HARNESS_ROUTER", substr(__DIR__ . '/router.php', strlen(HARNESS_DIR)+1));
 
+function getDefaultHarnessPath() {
+    $harnessSettingsFile = findClosestFile('harness-settings.json');
+    if ($harnessSettingsFile) {
+        $harnessSettings = read_json($harnessSettingsFile);
+    }
+    return $harnessSettings['@default'] ?? false;
+}
 
 function start_webserver ($path = '.', $opts = []) {
     $path = realpath($path);
+    if ($path && !is_dir($path)) {
+        $path = dirname($path);
+    }
+    if (!$path) {
+        throw new Exception('Invalid path given: '. func_get_arg(0));
+    }
     
 
     mkdirr('/tmp/harness');
@@ -55,32 +68,42 @@ function start_webserver ($path = '.', $opts = []) {
     
     write_json('/tmp/harness/processes.json', array_values($bookmarks_processes));
 
-    if (file_exists($path . '/start-harness.php')) {
-        $openBrowser();
-        define('HARNESS_PORT', $port);
-        include($path . '/start-harness.php');
+    $openBrowser();
+
+    // Ik wil die accepted / closing log berichten kwijt.
+    // maar $pipes = " | grep -v " werkt niet...
+    $pipes = '';
+    $env = '';
+
+    if ($opts['harness'] ?? false) {
+        $env = 'HARNESS_DEFAULT_HARNESS_PATH=' . realpath($opts['harness']) . " $env";
+    } else if (isset($_ENV['HARNESS_DEFAULT_HARNESS'])) {
+        echo "Using env variable for default harness: " . $_ENV['HARNESS_DEFAULT_HARNESS'] . "\n";
+
     } else {
-        $openBrowser();
-
-        // Ik wil die accepted / closing log berichten kwijt.
-        // maar $pipes = " | grep -v " werkt niet...
-        $pipes = '';
-        $env = '';
-
-        if ($opts['docker'] ?? false) {
-            $opts['port'] = $port;
-            $opts['pipes'] = $pipes;
-            $opts['env'] = $env;
-
-            _start_dockerized($path, $opts);
-            
-        } else {
-            if ($opts['tool'] ?? false) {
-                $env = "TOOL_DIR='{$opts['tool']}'";
-            }    
-            system("cd $path; $env php -d variables_order=EGPCS -S localhost:$port " . __DIR__ . "/router.php $pipes");
-        }        
+        $harnessSettingsFile = findClosestFile('harness-settings.json');
+        if ($harnessSettingsFile) {
+            $harnessSettings = read_json($harnessSettingsFile);
+            echo "Using harness-settings from $harnessSettingsFile\n";
+            echo "Using default harness: " . $harnessSettings['@default'] . "\n";
+            $env = "HARNESS_DEFAULT_HARNESS_PATH=".$harnessSettings['@default'] . " $env";
+        }
     }
+
+
+    if ($opts['docker'] ?? false) {
+        $opts['port'] = $port;
+        $opts['pipes'] = $pipes;
+        $opts['env'] = $env;
+
+        _start_dockerized($path, $opts);
+        
+    } else {
+        if ($opts['tool'] ?? false) {
+            $env = "TOOL_DIR='{$opts['tool']}' $env";
+        }    
+        system("cd $path; $env php -d variables_order=EGPCS -S localhost:$port " . __DIR__ . "/router.php $pipes");
+    }        
 }
 function _start_dockerized($path, $opts) {
     $port = $opts['port'];
@@ -98,7 +121,7 @@ function _start_dockerized($path, $opts) {
         throw new Exception('To use docker, please install php extension yaml');
     }
     
-    if ($opts['dockerfile']) {
+    if ($opts['dockerfile'] ?? false) {
         $dockerfile = realpath($opts['dockerfile'].'/docker-compose.yml');
     } else {
         $dockerfile = realpath('docker-compose.yml');
@@ -130,9 +153,16 @@ function _start_dockerized($path, $opts) {
         exit(1);
     }
 
-    $dockerArgs = [
-        "--volume '" . HARNESS_DIR . "':'/opt/harness'",
-    ];
+    $isPhar = \Phar::running(false);
+    if ($isPhar) {
+        $dockerArgs = [ 
+            "--volume '" . $isPhar ."':'/opt/harness.phar'"
+        ];
+    } else {
+        $dockerArgs = [
+            "--volume '" . HARNESS_DIR . "':'/opt/harness'",
+        ];
+    }
 
     if (!empty($foundVolumes)) { 
         list($service, $localPath, $remotePath) = $foundVolumes[0];
@@ -152,20 +182,23 @@ function _start_dockerized($path, $opts) {
     
     // HARNESS_DEFAULT_HARNESS_PATH
 
-    $harness = new Harness($path);
-    $defaultHarnessPath = $harness->defaultHarnessPath;    
+    $defaultHarnessPath = getDefaultHarnessPath();
 
     if ($defaultHarnessPath) {
         $dockerArgs[] = "--volume '$defaultHarnessPath':'/opt/default-harness'";
-        $env = "HARNESS_DEFAULT_HARNESS_PATH='/opt/default-harness' $env";
+        $env = "$env HARNESS_DEFAULT_HARNESS_PATH='/opt/default-harness' ";
     };
     if ($opts['tool'] ?? false) {
         $dockerArgs[] = "--volume '{$opts['tool']}':'/opt/tool'";
-        $env = " TOOL_DIR='/opt/tool' $env ";
+        $env = "$env TOOL_DIR='/opt/tool'  ";
     } 
     $env = "cd $workingDirectory; $env";
 
-    $START_ROUTER = "$env php -d variables_order=EGPCS -S 0.0.0.0:$port /opt/harness/$HARNESS_ROUTER $pipes";
+    if (\Phar::running(false)) {
+        $START_ROUTER = "$env php -d variables_order=EGPCS -S 0.0.0.0:$port phar:///opt/harness.phar/src/router.php $pipes";
+    } else {
+        $START_ROUTER = "$env php -d variables_order=EGPCS -S 0.0.0.0:$port /opt/harness/$HARNESS_ROUTER $pipes";
+    }
 
     $dockerArgs = join(" \\\n", $dockerArgs);
     chdir($path);
@@ -181,6 +214,40 @@ function _start_dockerized($path, $opts) {
 }
 if ($argv[1]) {
     switch ($argv[1]) {
+        case '-?':
+        case '--help':
+        case 'help':
+            readfile(__DIR__ . '/../README.md');
+        break;
+        case 'settings': 
+            touch($_ENV['HOME'] . '/harness-settings.json');
+            $harnessSettingsFile = findClosestFile(('harness-settings.json'));
+            if (!$harnessSettingsFile) {
+                throw new Exception('Cannot find a harness-settings.json anywhere. Try creating one first in $HOME for instance.');
+            }
+            system("code " . $harnessSettingsFile);
+        break;
+        case 'register':
+        case 'register-harness':
+        case 'register-default-harness':
+            $path = realpath('./'. ($argv[2] ?? ''));
+            touch($_ENV['HOME'] . '/harness-settings.json');
+            $harnessSettingsFile = findClosestFile(('harness-settings.json'));
+            if (!$harnessSettingsFile) {
+                throw new Exception('Cannot find a harness-settings.json anywhere. Try creating one first in $HOME for instance.');
+            }
+            
+            $harnessSettings = read_json($harnessSettingsFile) ?? [];
+            $harnessSettings['harnesses'] = $harnessSettings['harnesses'] ?? [];
+            
+            $name = str_replace('-default-harness', '', basename($path));
+            $harnessSettings['harnesses'][$name] = $path;
+            $harnessSettings['@default'] = $path;
+
+            echo "Writing changes to $harnessSettingsFile\n";
+            write_json($harnessSettingsFile, $harnessSettings);
+
+        break;
         case 'build':
         case 'watch':
                     

@@ -34,6 +34,41 @@ function write_json($file, $data) {
     return file_put_contents($file, json_encode($data, JSON_PRETTY_PRINT + JSON_UNESCAPED_SLASHES));
 }
 
+if (!function_exists('findClosestFile')) { 
+    /**
+     * Super handy function to search for the closest
+     * file given some path.
+     * 
+     * findClosestFile('package.json', '/path/to/my/project/app/some/folder')
+     * might return /path/to/my/project/package.json
+     */
+    function findClosestFile($filename, $path = null) 
+    {
+        // paths from .git, package.json, composer.json
+
+        $tryFiles = !is_array($filename) ? [$filename] : $filename;
+        // print_R($tryFiles);
+
+        $currentPath = realpath($path) ?: getcwd() . "/" . $path;
+
+        while($currentPath > '/home' && $currentPath > '/') {
+            // echo $currentPath . "\n";
+            foreach ($tryFiles as $file) {
+                // echo "$currentPath/$file\n";
+
+                if (is_dir($currentPath . "/" . $file) || is_file($currentPath . "/" . $file)) {
+                    return $currentPath . '/' . $file;
+                }
+
+            }    
+            $currentPath = dirname($currentPath);
+        }
+        return false;
+    }
+}
+
+
+
 require_once __DIR__ . '/Harness.php';
 require_once __DIR__ . '/HarnessServer.php';
 

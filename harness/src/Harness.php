@@ -24,29 +24,23 @@ class Harness {
             $this->path
         ];
 
-        if (file_exists(__DIR__ . '/../package.json')) {
-            $this->harnessSettings = read_json(__DIR__ . '/../package.json');
-            if ($this->harnessSettings['harness']['default-harness']) {
+        $defaultHarness = $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] ?? false;
+        
+        if ($defaultHarness) {
+            // If default-harness is a relative path, calculate 
+            // the absolute path relative to the location of my package.json
+            $this->defaultHarnessPath = realpath($defaultHarness) ?: realpath(__DIR__ .'/../' . $defaultHarness);
 
-                // If default-harness is a relative path, calculate 
-                // the absolute path relative to the location of my package.json
-                if (isset($_ENV['HARNESS_DEFAULT_HARNESS_PATH'])) {
-                    $path = $_ENV['HARNESS_DEFAULT_HARNESS_PATH'];
-                } else { 
-                    $path = $this->harnessSettings['harness']['default-harness'];
-                }
-                $this->defaultHarnessPath = realpath($path) ?: realpath(__DIR__ .'/../' . $path);
-
-                if (!$this->defaultHarnessPath) {
-                    throw new Exception("Default harness path \`$path\` could not be found.");
-                }
-
-                array_unshift(
-                    $this->includePaths, 
-                    $this->defaultHarnessPath
-                );
+            if (!$this->defaultHarnessPath) {
+                throw new Exception("Default harness path \`$defaultHarness\` could not be found.");
             }
+
+            array_unshift(
+                $this->includePaths, 
+                $this->defaultHarnessPath
+            );
         }
+
     }
 
     function glob($patterns) {
