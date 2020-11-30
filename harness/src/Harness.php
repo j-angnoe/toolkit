@@ -1,5 +1,5 @@
 <?php 
-namespace harness;
+namespace Harness;
 use Exception;
 
 class Harness {

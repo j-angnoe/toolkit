@@ -76,20 +76,36 @@ function start_webserver ($path = '.', $opts = []) {
     $env = '';
 
     if ($opts['harness'] ?? false) {
-        $env = 'HARNESS_DEFAULT_HARNESS_PATH=' . realpath($opts['harness']) . " $env";
-    } else if (isset($_ENV['HARNESS_DEFAULT_HARNESS'])) {
-        echo "Using env variable for default harness: " . $_ENV['HARNESS_DEFAULT_HARNESS'] . "\n";
-
-    } else {
-        $harnessSettingsFile = findClosestFile('harness-settings.json');
-        if ($harnessSettingsFile) {
-            $harnessSettings = read_json($harnessSettingsFile);
-            echo "Using harness-settings from $harnessSettingsFile\n";
-            echo "Using default harness: " . $harnessSettings['@default'] . "\n";
-            $env = "HARNESS_DEFAULT_HARNESS_PATH=".$harnessSettings['@default'] . " $env";
+        if (file_exists($opts['harness'])) {
+            $defaultHarness = realpath($opts['harness']);
         }
+
+        $harnessSettings = read_json(findClosestFile('harness-settings.json'));
+        $harnessSettings['harnesses']['@shipped'] = __DIR__ . '/../default-harness';
+
+        if ($harnessSettings['harnesses'][$opts['harness']] ?? false) {
+            $defaultHarness = $harnessSettings['harnesses'][$opts['harness']];
+        } else {
+            throw new Exception('Dont know any `'. $opts['harness'] .'` default harness. Maybe check `harness settings` and configure one.');
+        }
+
+    } else if (isset($_ENV['HARNESS_DEFAULT_HARNESS_PATH'])) {
+        echo "Using env variable for default harness: " . $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] . "\n";
+        $defaultHarness = $_ENV['HARNESS_DEFAULT_HARNESS_PATH'];
+    } else {
+        $defaultHarness = getDefaultHarnessPath();
     }
 
+    // @fixme - shipped default harness wont run in phar mode...
+    // because glob cannot handle the phar:// protocol.
+    if (!realpath($defaultHarness)) {
+        // Use shipped harness path.
+        echo "Using shipped default harness\n";
+        $defaultHarness = __DIR__ . '/../default-harness';
+    }
+
+    $_ENV['HARNESS_DEFAULT_HARNESS_PATH'] = $defaultHarness;
+    $env = "HARNESS_DEFAULT_HARNESS_PATH=$defaultHarness $env";
 
     if ($opts['docker'] ?? false) {
         $opts['port'] = $port;
@@ -283,7 +299,7 @@ if ($argv[1]) {
                 chdir($argv[2]);
             } 
             $object = new Harness(getcwd());
-            $source = $object->defaultHarnessPath . '/default/template';
+            $source = getDefaultHarnessPath() . '/default/template';
             if (is_dir($source)) { 
                 system("rsync --ignore-existing -razv $source/ .");
                 $package = read_json('package.json');

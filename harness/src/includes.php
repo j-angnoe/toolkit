@@ -1,5 +1,5 @@
 <?php
-namespace harness;
+namespace Harness;
 use Exception;
 
 require_once __DIR__ . '/../vendor/autoload.php';

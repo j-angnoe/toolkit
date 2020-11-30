@@ -1,5 +1,5 @@
 {
-    "name": "joshua/workbench",
+    "name": "j-angnoe/harness",
     "authors": [
         {
             "name": "Joshua Angnoe",
@@ -8,5 +8,8 @@
     ],
     "require": {
         "samejack/php-argv": "^1.0"
+    },
+    "autoload" : {
+        "classmap" : ["src"]
     }
 }

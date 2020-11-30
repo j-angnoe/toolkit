@@ -1,5 +1,5 @@
 <?php 
-namespace harness;
+namespace Harness;
 use Exception;
 
 class HarnessServer {
@@ -135,8 +135,8 @@ class HarnessServer {
     }
 
     // Dispatch and apiBridge are a nice couple
-    function getApiBridge() {
-        return trim(<<<'JAVASCRIPT'
+    function getApiBridge($rootUrl = '') {
+        $result = trim(<<<'JAVASCRIPT'
         window.api = new Proxy({},{
             get(obj, apiName) {
             return new Proxy(
@@ -152,7 +152,7 @@ class HarnessServer {
                 get(obj, functionName) {
                     return async function (...args) {
                     var response = await axios.post(
-                        "api/" + apiName + "/" + functionName,
+                        "{$rootUrl}api/" + apiName + "/" + functionName,
                         { rpc: [apiName, functionName, args] }
                     );
                     return response.data;
@@ -162,7 +162,14 @@ class HarnessServer {
             );
             }
         });
-        Vue.prototype.api = api;
-JAVASCRIPT);     
+        if (window.Vue) { 
+            window.Vue.prototype.api = api;
+        }
+JAVASCRIPT);   
+
+        $result = str_replace('{$rootUrl}', $rootUrl, $result);
+
+        return $result;
+
     }
 }

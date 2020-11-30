@@ -13,6 +13,7 @@
     "pharao": {
         "files": [
             "src/",
+            "default-harness/",
             "vendor/.*\\.php$ -tests/ -test/ -examples/",
             "package.json"
         ],
