@@ -12,6 +12,8 @@ window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
 import Vue from 'vue/dist/vue.common';
 
 window.Vue = Vue;
+// Turn of that warning
+Vue.config.productionTip = false
 
 var vuecf = require("vue-blocks/vue-component-framework");
 
@@ -192,7 +194,6 @@ Vue.use(VueRouter);
 		);
 		
 		function popupError(error) {
-		  // console.log(error.response);
 		  window.dialog.launch({
 		    width: 800,
 		    height: 800,
@@ -201,11 +202,25 @@ Vue.use(VueRouter);
 		    title: '<span style="color:red;">Server error occured</span>',
 		    component: {
 		      data: error.response,
-	          template: `<div>
-	            <div v-if="data">
-	                <pre style="white-space: pre-wrap;">{{data}}</pre>
+			  template: `<div>
+			  
+				<div v-if="data">
+					<div v-if="data.error">
+						<h3>{{data.error}}</h3>
+					</div>
+					<div v-if="data.trace">
+						<div v-for="t in data.trace" @dblclick="api.__harness.view_error(t.file, t.line)">
+							<div>{{t.file}} line {{t.line}}</div>
+							<pre>{{t.code}}</pre>
+						</div>
+						<!-- <pre>{{data.trace}}</pre> -->
+					</div>
+					<div v-else>
+						<pre style="white-space: pre-wrap;">{{data}}</pre>
+					</div>
 	            </div>
-	            <div v-else>
+				<div v-else>
+					$data:
 	                <pre style="white-space: pre-wrap;">{{$data}}</pre>
 	            </div>
 	          </div>`

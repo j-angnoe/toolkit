@@ -14674,8 +14674,12 @@ function domComponentCollectorRaw() {
             var code = script.innerHTML.replace(/export default/,'module.exports = ');
             var process = comp => comp;
 
-            if (code.match("'short';")) {
-                code = code.replace(/return class \{/, 'module.exports = class {');
+            if (code.match("('short';|return class vue)")) {
+                if (code.match('return class vue')) { 
+                    code = code.replace(/return\s+class\s+vue\s*\{/, 'module.exports = class {');
+                } else { 
+                    code = code.replace(/return\s+class\s+\{/, 'module.exports = class {');
+                }
                 code = code.replace(/\sconstructor\s*\(/, 'mounted(');
                 code = code.replace(/\sdestructor\s*\(/, 'unmounted(');
                 process = function(obj) {
@@ -19335,7 +19339,9 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 /* @meta('load-stylesheets', ['url' => '/core.css']); */
 window.axios = _axios.default;
 window.axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
-window.Vue = _vue.default;
+window.Vue = _vue.default; // Turn of that warning
+
+_vue.default.config.productionTip = false;
 
 var vuecf = require("vue-blocks/vue-component-framework");
 
@@ -19538,7 +19544,6 @@ window.axios.interceptors.response.use(function (response) {
 });
 
 function popupError(error) {
-  // console.log(error.response);
   window.dialog.launch({
     width: 800,
     height: 800,
@@ -19547,7 +19552,7 @@ function popupError(error) {
     title: '<span style="color:red;">Server error occured</span>',
     component: {
       data: error.response,
-      template: "<div>\n\t            <div v-if=\"data\">\n\t                <pre style=\"white-space: pre-wrap;\">{{data}}</pre>\n\t            </div>\n\t            <div v-else>\n\t                <pre style=\"white-space: pre-wrap;\">{{$data}}</pre>\n\t            </div>\n\t          </div>"
+      template: "<div>\n\t\t\t  \n\t\t\t\t<div v-if=\"data\">\n\t\t\t\t\t<div v-if=\"data.error\">\n\t\t\t\t\t\t<h3>{{data.error}}</h3>\n\t\t\t\t\t</div>\n\t\t\t\t\t<div v-if=\"data.trace\">\n\t\t\t\t\t\t<div v-for=\"t in data.trace\" @dblclick=\"api.__harness.view_error(t.file, t.line)\">\n\t\t\t\t\t\t\t<div>{{t.file}} line {{t.line}}</div>\n\t\t\t\t\t\t\t<pre>{{t.code}}</pre>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t\t<!-- <pre>{{data.trace}}</pre> -->\n\t\t\t\t\t</div>\n\t\t\t\t\t<div v-else>\n\t\t\t\t\t\t<pre style=\"white-space: pre-wrap;\">{{data}}</pre>\n\t\t\t\t\t</div>\n\t            </div>\n\t\t\t\t<div v-else>\n\t\t\t\t\t$data:\n\t                <pre style=\"white-space: pre-wrap;\">{{$data}}</pre>\n\t            </div>\n\t          </div>"
     }
   });
 }

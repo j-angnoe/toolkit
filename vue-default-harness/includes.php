@@ -380,3 +380,22 @@ if (!function_exists('stringToColor')) {
         return '#' . implode($hexCode);
     }
 }  
+
+// PHP 8.0 stubs
+if (!function_exists('str_starts_with')) {
+    function str_starts_with($haystack, $needle) {
+        return strpos($haystack, $needle) === 0;
+    }
+}
+
+if (!function_exists('str_contains')) {
+    function str_contains($haystack, $needle) {
+        return strpos($haystack, $needle) >= 0;
+    }
+}
+
+if (!function_exists('str_ends_with')) {
+    function str_ends_with($haystack, $needle) {
+        return strpos(strrev($haystack), strrev($needle)) === 0;
+    }
+}

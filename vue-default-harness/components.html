@@ -1,3 +1,17 @@
+<?php
+
+class __harness { 
+    function view_error($file, $line) {
+      if (isset($_ENV['DESKTOP_SESSION'])) { 
+        system("code -g $file:$line");
+      } else {
+        header('HTTP/1.1 500 Internal server error');
+        exit("Not a desktop session.");
+      }
+    }
+}
+?>
+
 <template component="tabbed-view">
     <div>
         <nav class="nav nav-tabs">
